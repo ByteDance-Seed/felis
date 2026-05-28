@@ -1,0 +1,126 @@
+diff --git a/prolif/fingerprint.py b/prolif/fingerprint.py
+index 6a043e9..4abcdc2 100644
+--- a/prolif/fingerprint.py
++++ b/prolif/fingerprint.py
+@@ -482,7 +482,10 @@ class Fingerprint:
+         iterator = tqdm(traj) if progress else traj
+         ifp = {}
+         for ts in iterator:
+-            lig_mol = Molecule.from_mda(lig, **converter_kwargs[0])
++            if isinstance(lig, tuple) and len(lig) == 2:
++                lig_mol = Molecule.from_lig_sdf_mda(*lig)
++            else:
++                lig_mol = Molecule.from_mda(lig, **converter_kwargs[0])
+             prot_mol = Molecule.from_mda(prot, **converter_kwargs[1])
+             ifp[int(ts.frame)] = self.generate(
+                 lig_mol, prot_mol, residues=residues, metadata=True
+@@ -507,7 +510,7 @@ class Fingerprint:
+         except AttributeError:
+             # sliced trajectory
+             frames = range(traj.start, traj.stop, traj.step)
+-            traj = lig.universe.trajectory
++            traj = prot.universe.trajectory
+         else:
+             frames = range(n_frames)
+         chunks = np.array_split(frames, n_chunks)
+diff --git a/prolif/interactions/interactions.py b/prolif/interactions/interactions.py
+index a88dabd..62a73a6 100644
+--- a/prolif/interactions/interactions.py
++++ b/prolif/interactions/interactions.py
+@@ -185,8 +185,8 @@ class Cationic(Distance):
+ 
+     def __init__(
+         self,
+-        cation="[+{1-},$([NX3&!$([NX3]-O)]-[C]=[NX3+])]",
+-        anion="[-{1-},$(O=[C,S,P]-[O-])]",
++        cation="[+{1-}!$(*~[*-]),$([NX3&!$([NX3]-O)]-[C]=[NX3+])]",
++        anion="[-{1-}!$(*~[*+]),$(O=[C,S,P]-[O-])]",
+         distance=4.5,
+     ):
+         super().__init__(lig_pattern=cation, prot_pattern=anion, distance=distance)
+@@ -223,7 +223,7 @@ class CationPi(Interaction):
+ 
+     def __init__(
+         self,
+-        cation="[+{1-},$([NX3&!$([NX3]-O)]-[C]=[NX3+])]",
++        cation="[+{1-}!$(*~[*-]),$([NX3&!$([NX3]-O)]-[C]=[NX3+])]",
+         pi_ring=(
+             "[a;r6]1:[a;r6]:[a;r6]:[a;r6]:[a;r6]:[a;r6]:1",
+             "[a;r5]1:[a;r5]:[a;r5]:[a;r5]:[a;r5]:1",
+diff --git a/prolif/molecule.py b/prolif/molecule.py
+index 3d28d69..db7539e 100644
+--- a/prolif/molecule.py
++++ b/prolif/molecule.py
+@@ -159,6 +159,56 @@ class Molecule(BaseRDKitMol):
+             atom.SetMonomerInfo(mi)
+         return cls(mol)
+ 
++    @classmethod
++    def from_lig_sdf_mda(cls, sdf_file: str, mda_ag):
++        sdfmol = Chem.SDMolSupplier(sdf_file, sanitize=False, removeHs=False)[0]
++        plfmol = cls.from_rdkit(sdfmol, resname=mda_ag.resnames[0])
++        for idx, a in enumerate(plfmol.GetAtoms()):
++            value = float(mda_ag.charges[idx])
++            a.SetDoubleProp("_MDAnalysis_charge", value)
++            value = str(mda_ag.segids[idx])
++            a.SetProp("_MDAnalysis_segid", value)
++            value = str(mda_ag.types[idx])
++            a.SetProp("_MDAnalysis_type", value)
++            value = str(mda_ag.names[idx])
++            a.SetProp("_MDAnalysis_name", value)
++            value = idx
++            a.SetIntProp("_MDAnalysis_index", value)
++
++        pos = mda_ag.positions
++        conf = Chem.Conformer(plfmol.GetNumAtoms())
++        for atom in plfmol.GetAtoms():
++            idx = atom.GetIdx()
++            xyz = pos[idx].astype(float)
++            conf.SetAtomPosition(idx, xyz)
++
++        def _sanitize_rdkit_Chem_Mol(mol):
++            # aromaticity = "rdkit"; do not skip "advanced kekulize"
++            sanitize_flag = Chem.SANITIZE_ALL ^ Chem.SANITIZE_SETAROMATICITY
++            try:
++                Chem.SanitizeMol(mol, sanitize_flag)
++            except Exception as e:
++                raise ValueError("RDKit could not sanitize the molecule") from e
++            try:
++                Chem.SetAromaticity(mol, Chem.AromaticityModel.AROMATICITY_RDKIT)
++            except Exception as e:
++                raise ValueError("RDKit could not set aromaticity") from e
++
++        plfmol.RemoveAllConformers()
++        plfmol.AddConformer(conf)
++        Chem.AssignStereochemistryFrom3D(plfmol)
++        Chem.SetDoubleBondNeighborDirections(plfmol)
++        _sanitize_rdkit_Chem_Mol(plfmol)
++        plfmol.UpdatePropertyCache()
++
++        plfmol.residues[0].RemoveAllConformers()
++        plfmol.residues[0].AddConformer(conf)
++        Chem.AssignStereochemistryFrom3D(plfmol.residues[0])
++        Chem.SetDoubleBondNeighborDirections(plfmol.residues[0])
++        _sanitize_rdkit_Chem_Mol(plfmol.residues[0])
++        plfmol.residues[0].UpdatePropertyCache()
++        return plfmol
++
+     def __iter__(self):
+         for residue in self.residues.values():
+             yield residue
+diff --git a/prolif/parallel.py b/prolif/parallel.py
+index c35dd51..b1444a0 100644
+--- a/prolif/parallel.py
++++ b/prolif/parallel.py
+@@ -139,7 +139,10 @@ class TrajectoryPool:
+         traj, lig, prot, chunk = args
+         ifp = {}
+         for ts in traj[chunk]:
+-            lig_mol = Molecule.from_mda(lig, **cls.converter_kwargs[0])
++            if isinstance(lig, tuple) and len(lig) == 2:
++                lig_mol = Molecule.from_lig_sdf_mda(*lig)
++            else:
++                lig_mol = Molecule.from_mda(lig, **cls.converter_kwargs[0])
+             prot_mol = Molecule.from_mda(prot, **cls.converter_kwargs[1])
+             data = cls.fp.generate(
+                 lig_mol, prot_mol, residues=cls.residues, metadata=True
