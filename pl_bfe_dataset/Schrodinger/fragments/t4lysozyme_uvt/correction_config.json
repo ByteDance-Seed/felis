@@ -1,0 +1,16 @@
+{
+  "exp_ref": {
+    "meta_methyl_ethyl_benzene": -5.079999923706055,
+    "methyl_benzene": -5.480000019073486,
+    "ethyl_benzene": -5.71999979019165,
+    "ortho_methyl_ethyl_benzene": -4.53000020980835,
+    "m-xylene": -4.71999979019165,
+    "p-xylene": -4.630000114440918,
+    "o-xylene": -4.570000171661377,
+    "butyl_benzene": -6.659999847412109,
+    "propyl_benzene": -6.510000228881836,
+    "para_methyl_ethyl_benzene": -5.380000114440918,
+    "benzene": -5.159999847412109,
+    "isobutyl_benzene": -6.440000057220459
+  }
+}

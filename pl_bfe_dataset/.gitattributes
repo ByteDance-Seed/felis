@@ -1,0 +1,2 @@
+# Disable git-lfs for all files in pl_bfe_dataset
+* filter= diff= merge=

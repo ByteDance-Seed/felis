@@ -1,0 +1,62 @@
+; ITP file created by ByteFF-joint-25, 2026-02-17 09:32:11.381384
+
+[ atomtypes ]
+;name           bonded.type        at.num        mass        charge   ptype           sigma         epsilon
+ o0bf                                   8      0.0000       0.00000       A     3.23856e-01     3.93625e-01    ;  uncertainty sigma = 0.000221, epsilon = 0.013090
+ p1bf                                  15      0.0000       0.00000       A     3.69511e-01     9.53419e-01    ;  uncertainty sigma = 0.000448, epsilon = 0.021654
+ o2bf                                   8      0.0000       0.00000       A     3.04700e-01     6.14666e-01    ;  uncertainty sigma = 0.000149, epsilon = 0.003324
+ o3bf                                   8      0.0000       0.00000       A     3.04700e-01     6.14666e-01    ;  uncertainty sigma = 0.000149, epsilon = 0.003324
+ o4bf                                   8      0.0000       0.00000       A     3.04700e-01     6.14666e-01    ;  uncertainty sigma = 0.000149, epsilon = 0.003324
+ h5bf                                   1      0.0000       0.00000       A     5.44215e-02     2.35493e-02    ;  uncertainty sigma = 0.001630, epsilon = 0.004433
+
+[ moleculetype ]
+;name             nrexcl
+ MOL                   3
+
+[ atoms ]
+;       nr            type      resi   res      atom      cgnr      charge          mass ; qtot
+         1            o0bf         1   UNL        o0         1    -0.76798       15.9990 ; qtot   -0.768
+         2            p1bf         1   UNL        p1         2     1.21927       30.9740 ; qtot    0.451
+         3            o2bf         1   UNL        o2         3    -0.92788       15.9990 ; qtot   -0.477
+         4            o3bf         1   UNL        o3         4    -0.92788       15.9990 ; qtot   -1.404
+         5            o4bf         1   UNL        o4         5    -0.92788       15.9990 ; qtot   -2.332
+         6            h5bf         1   UNL        h5         6     0.33235        1.0080 ; qtot   -2.000
+
+[ bonds ]
+;       ai        aj funct               r               k
+         1         2     1        0.178528   260398.839844    ;  uncertainty r = 0.001326, k = 96.932863
+         1         6     1        0.098344   451299.611230    ;  uncertainty r = 0.000225, k = 44.539621
+         2         3     1        0.155610   652785.923047    ;  uncertainty r = 0.000400, k = 27.685908
+         2         4     1        0.155610   652785.923047    ;  uncertainty r = 0.000400, k = 27.685908
+         2         5     1        0.155610   652785.923047    ;  uncertainty r = 0.000400, k = 27.685908
+
+[ angles ]
+;       ai        aj        ak funct           theta             cth
+         1         2         3     1      111.983139      764.087486    ;  uncertainty theta = 0.013070, k = 0.495869
+         1         2         4     1      111.983139      764.087486    ;  uncertainty theta = 0.013070, k = 0.495869
+         1         2         5     1      111.983139      764.087486    ;  uncertainty theta = 0.013070, k = 0.495869
+         2         1         6     1      117.336960      342.143095    ;  uncertainty theta = 0.031169, k = 1.016778
+         3         2         4     1      125.470543      828.407421    ;  uncertainty theta = 0.011828, k = 0.171373
+         3         2         5     1      125.470543      828.407357    ;  uncertainty theta = 0.011828, k = 0.171373
+         4         2         5     1      125.470543      828.407421    ;  uncertainty theta = 0.011828, k = 0.171373
+
+[ dihedrals ] ; propers for gromacs 4.5 or higher, use funct 9
+;       ai        aj        ak        al funct           phase               k        pn
+         3         2         1         6     9        0.000000        1.193484         1    ;  uncertainty k = 5.207927
+         3         2         1         6     9      180.000000        1.592372         2    ;  uncertainty k = 1.987684
+         3         2         1         6     9        0.000000       -0.288089         3    ;  uncertainty k = 1.349871
+         3         2         1         6     9      180.000000        0.028711         4    ;  uncertainty k = 0.508412
+         4         2         1         6     9        0.000000        1.193484         1    ;  uncertainty k = 5.207927
+         4         2         1         6     9      180.000000        1.592372         2    ;  uncertainty k = 1.987684
+         4         2         1         6     9        0.000000       -0.288089         3    ;  uncertainty k = 1.349871
+         4         2         1         6     9      180.000000        0.028711         4    ;  uncertainty k = 0.508412
+         5         2         1         6     9        0.000000        1.193484         1    ;  uncertainty k = 5.207927
+         5         2         1         6     9      180.000000        1.592372         2    ;  uncertainty k = 1.987684
+         5         2         1         6     9        0.000000       -0.288089         3    ;  uncertainty k = 1.349871
+         5         2         1         6     9      180.000000        0.028711         4    ;  uncertainty k = 0.508412
+
+[ pairs ]
+;       ai        aj funct
+         3         6     1
+         4         6     1
+         5         6     1

@@ -1,0 +1,6 @@
+progro: input/protein_w_cofactors.gro
+protop: input/protein_w_cofactors.top
+sdffile: input/ejm_31.sdf
+itpfile: input/ejm_31.itp
+stages: ["all"]
+outdir: tyk2_example
