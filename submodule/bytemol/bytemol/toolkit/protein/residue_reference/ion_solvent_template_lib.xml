@@ -1,0 +1,181 @@
+<!-- Based on Amber tip3p_standard.xml. see [https://github.com/openmm/openmmforcefields/blob/main/openmmforcefields/ffxml/amber/tip3p_standard.xml] -->
+<Residues>
+  <Residue name="AL">
+      <Atom charge="3.0" name="AL" structuretype="ion" element="Al" />
+    </Residue>
+    <Residue name="Ag">
+      <Atom charge="2.0" name="Ag" structuretype="ion" element="Ag" />
+    </Residue>
+    <Residue name="BA">
+      <Atom charge="2.0" name="BA" structuretype="ion" element="Ba" />
+    </Residue>
+    <Residue name="BR">
+      <Atom charge="-1.0" name="BR" structuretype="ion" element="Br" />
+    </Residue>
+    <Residue name="Be">
+      <Atom charge="2.0" name="Be" structuretype="ion" element="Be" />
+    </Residue>
+    <Residue name="CA">
+      <Atom charge="2.0" name="CA" structuretype="ion" element="Ca" />
+    </Residue>
+    <Residue name="CD">
+      <Atom charge="2.0" name="CD" structuretype="ion" element="Cd" />
+    </Residue>
+    <Residue name="CE">
+      <Atom charge="3.0" name="CE" structuretype="ion" element="Ce" />
+    </Residue>
+    <Residue name="CL">
+      <Atom charge="-1.0" name="CL" structuretype="ion" element="Cl" />
+    </Residue>
+    <Residue name="CO">
+      <Atom charge="2.0" name="CO" structuretype="ion" element="Co" />
+    </Residue>
+    <Residue name="CR">
+      <Atom charge="3.0" name="CR" structuretype="ion" element="Cr" />
+    </Residue>
+    <Residue name="CS">
+      <Atom charge="1.0" name="CS" structuretype="ion" element="Cs" />
+    </Residue>
+    <Residue name="CU">
+      <Atom charge="2.0" name="CU" structuretype="ion" element="Cu" />
+    </Residue>
+    <Residue name="Ce">
+      <Atom charge="4.0" name="Ce" structuretype="ion" element="Ce" />
+    </Residue>
+    <Residue name="Cr">
+      <Atom charge="2.0" name="Cr" structuretype="ion" element="Cr" />
+    </Residue>
+    <Residue name="Dy">
+      <Atom charge="3.0" name="Dy" structuretype="ion" element="Dy" />
+    </Residue>
+    <Residue name="EU">
+      <Atom charge="2.0" name="EU" structuretype="ion" element="Eu" />
+    </Residue>
+    <Residue name="EU3">
+      <Atom charge="3.0" name="EU3" structuretype="ion" element="Eu" />
+    </Residue>
+    <Residue name="Er">
+      <Atom charge="3.0" name="Er" structuretype="ion" element="Er" />
+    </Residue>
+    <Residue name="F">
+      <Atom charge="-1.0" name="F" structuretype="ion" element="F" />
+    </Residue>
+    <Residue name="FE">
+      <Atom charge="3.0" name="FE" structuretype="ion" element="Fe" />
+    </Residue>
+    <Residue name="FE2">
+      <Atom charge="2.0" name="FE2" structuretype="ion" element="Fe" />
+    </Residue>
+    <Residue name="GD3">
+      <Atom charge="3.0" name="GD" structuretype="ion" element="Gd" />
+    </Residue>
+    <Residue name="HG">
+      <Atom charge="2.0" name="HG" structuretype="ion" element="Hg" />
+    </Residue>
+    <Residue name="Hf">
+      <Atom charge="4.0" name="Hf" structuretype="ion" element="Hf" />
+    </Residue>
+    <Residue name="IN">
+      <Atom charge="3.0" name="IN" structuretype="ion" element="In" />
+    </Residue>
+    <Residue name="IOD">
+      <Atom charge="-1.0" name="I" structuretype="ion" element="I" />
+    </Residue>
+    <Residue name="K">
+      <Atom charge="1.0" name="K" structuretype="ion" element="K" />
+    </Residue>
+    <Residue name="LA">
+      <Atom charge="3.0" name="LA" structuretype="ion" element="La" />
+    </Residue>
+    <Residue name="LI">
+      <Atom charge="1.0" name="LI" structuretype="ion" element="Li" />
+    </Residue>
+    <Residue name="LU">
+      <Atom charge="3.0" name="LU" structuretype="ion" element="Lu" />
+    </Residue>
+    <Residue name="MG">
+      <Atom charge="2.0" name="MG" structuretype="ion" element="Mg" />
+    </Residue>
+    <Residue name="MN">
+      <Atom charge="2.0" name="MN" structuretype="ion" element="Mn" />
+    </Residue>
+    <Residue name="NA">
+      <Atom charge="1.0" name="NA" structuretype="ion" element="Na" />
+    </Residue>
+    <Residue name="NI">
+      <Atom charge="2.0" name="NI" structuretype="ion" element="Ni" />
+    </Residue>
+    <Residue name="Nd">
+      <Atom charge="3.0" name="Nd" structuretype="ion" element="Nd" />
+    </Residue>
+    <Residue name="PB">
+      <Atom charge="2.0" name="PB" structuretype="ion" element="Pb" />
+    </Residue>
+    <Residue name="PD">
+      <Atom charge="2.0" name="PD" structuretype="ion" element="Pd" />
+    </Residue>
+    <Residue name="PR">
+      <Atom charge="3.0" name="PR" structuretype="ion" element="Pr" />
+    </Residue>
+    <Residue name="PT">
+      <Atom charge="2.0" name="PT" structuretype="ion" element="Pt" />
+    </Residue>
+    <Residue name="Pu">
+      <Atom charge="4.0" name="Pu" structuretype="ion" element="Pu" />
+    </Residue>
+    <Residue name="RB">
+      <Atom charge="1.0" name="RB" structuretype="ion" element="Rb" />
+    </Residue>
+    <Residue name="Ra">
+      <Atom charge="2.0" name="Ra" structuretype="ion" element="Ra" />
+    </Residue>
+    <Residue name="SM">
+      <Atom charge="3.0" name="SM" structuretype="ion" element="Sm" />
+    </Residue>
+    <Residue name="SR">
+      <Atom charge="2.0" name="SR" structuretype="ion" element="Sr" />
+    </Residue>
+    <Residue name="Sm">
+      <Atom charge="2.0" name="Sm" structuretype="ion" element="Sm" />
+    </Residue>
+    <Residue name="Sn">
+      <Atom charge="2.0" name="Sn" structuretype="ion" element="Sn" />
+    </Residue>
+    <Residue name="TB">
+      <Atom charge="3.0" name="TB" structuretype="ion" element="Tb" />
+    </Residue>
+    <Residue name="Th">
+      <Atom charge="4.0" name="Th" structuretype="ion" element="Th" />
+    </Residue>
+    <Residue name="Tl">
+      <Atom charge="3.0" name="Tl" structuretype="ion" element="Tl" />
+    </Residue>
+    <Residue name="Tm">
+      <Atom charge="3.0" name="Tm" structuretype="ion" element="Tm" />
+    </Residue>
+    <Residue name="U4+">
+      <Atom charge="4.0" name="U" structuretype="ion" element="U" />
+    </Residue>
+    <Residue name="V2+">
+      <Atom charge="2.0" name="V2+" structuretype="ion" element="V" />
+    </Residue>
+    <Residue name="Y">
+      <Atom charge="3.0" name="Y" structuretype="ion" element="Y" />
+    </Residue>
+    <Residue name="YB2">
+      <Atom charge="2.0" name="YB2" structuretype="ion" element="Yb" />
+    </Residue>
+    <Residue name="ZN">
+      <Atom charge="2.0" name="ZN" structuretype="ion" element="Zn" />
+    </Residue>
+    <Residue name="Zr">
+      <Atom charge="4.0" name="Zr" structuretype="ion" element="Zr" />
+    </Residue>
+   <Residue name="HOH">
+   <Atom name="O" structuretype="sol" element="O" />
+   <Atom name="H1" structuretype="sol" element="H" />
+   <Atom name="H2" structuretype="sol" element="H" />
+   <Bond atomName1="O" atomName2="H1" />
+   <Bond atomName1="O" atomName2="H2" />
+  </Residue>
+ </Residues>
