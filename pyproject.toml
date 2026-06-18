@@ -47,6 +47,9 @@ Repository = "https://github.com/ByteDance-Seed/felis"
 where = ["."]
 include = ["felis*", "bytemol*"]
 
+[tool.setuptools.package-data]
+"bytemol.toolkit.protein.residue_reference" = ["*.xml"]
+
 
 [tool.isort]
 py_version = 311
