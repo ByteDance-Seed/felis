@@ -96,7 +96,8 @@ class ABStageExecution_sysB_em(ABStageExecutionBase):
             f"i:integrator.minimize:{em_version}",
             "i:integrator.nsnapshots:20",
         ]
-        assert job_context.run_one_call(cmd) == 0
+        if job_context.run_one_call(cmd) != 0:
+            raise RuntimeError("sysB Boresch-filtered energy minimization failed")
         shutil.copy(os.path.join(job_context.trj_dir, "sysB_boresch_filtered.pdb"),
                     os.path.join(job_context.prepare_dir, "sysB_boresch_refined.pdb"))
 
@@ -116,7 +117,8 @@ class ABStageExecution_sysB_em(ABStageExecutionBase):
             "i:integrator.nsnapshots:20",
         ]
 
-        assert 0 == job_context.run_one_call(cmd_sysB_em)
+        if job_context.run_one_call(cmd_sysB_em) != 0:
+            raise RuntimeError("sysB energy minimization failed")
         shutil.copy(os.path.join(job_context.trj_dir, "sysB_em.pdb"),
                     os.path.join(job_context.prepare_dir, "sysB_em.pdb"))
         shutil.copy(os.path.join(job_context.trj_dir, "sysB_em.pdb"),
@@ -200,7 +202,8 @@ class ABStageExecution_sysB(ABStageExecutionBase):
         cmd.extend([f"i:ab.ilam:{vv}" for vv in range(num_lambdas)])
         mps_cmd = job_context.build_cuda_mps_command(cmd, gpu_id=gpu_ids)
 
-        assert 0 == job_context.run_one_call(mps_cmd), "sysB failed"
+        if job_context.run_one_call(mps_cmd) != 0:
+            raise RuntimeError("sysB failed")
 
         job_context.write_stage_done(stage, {"n_cuda_devices": n_cuda_devices})
 
@@ -315,8 +318,8 @@ class ABStageExecution_sysB_opt_lambdas(ABStageExecutionBase):
             mps_cmd = job_context.build_cuda_mps_command(cmd, gpu_id=gpu_ids)
 
             logger.info(f"iter={k} launching short HREMD: {iter_dir}")
-            assert 0 == job_context.run_one_call(mps_cmd, working_dir=str(iter_dir)), \
-                f"sysB opt lambdas HREMD failed at iter={k}"
+            if job_context.run_one_call(mps_cmd, working_dir=str(iter_dir)) != 0:
+                raise RuntimeError(f"sysB opt lambdas HREMD failed at iter={k}")
 
             energy_matrix_path = iter_trj / "b0_hremd" / "records.sqlite"
             records = read_records(energy_matrix_path)

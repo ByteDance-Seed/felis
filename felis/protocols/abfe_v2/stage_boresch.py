@@ -49,7 +49,8 @@ class ABStageExecution_boresch_em_v2(ABStageExecutionBase):
             f"i:integrator.minimize:{em_version}",
             "i:integrator.nsnapshots:20",
         ]
-        assert 0 == job_context.run_one_call(cmd)
+        if job_context.run_one_call(cmd) != 0:
+            raise RuntimeError("Boresch energy minimization failed")
         shutil.copy(os.path.join(job_context.trj_dir, "sysB_boresch_em.pdb"),
                     os.path.join(job_context.prepare_dir, f"sysB_no_rstrn_em{em_version}.pdb"))
 
@@ -126,7 +127,8 @@ class ABStageExecution_boresch_npt_v2(ABStageExecutionBase):
             raise ValueError("No visible CUDA devices found.")
 
         boresch_npt_cmd = job_context.build_cuda_mps_command(cmd, gpu_id=[device_id])
-        assert job_context.run_one_call(boresch_npt_cmd) == 0
+        if job_context.run_one_call(boresch_npt_cmd) != 0:
+            raise RuntimeError("Boresch long NPT simulation failed")
 
         sys_top = os.path.join(job_context.prepare_dir, "sysB.top")
         trj_dcd = os.path.join(job_context.trj_dir, "sysB_boresch_npt.dcd")
@@ -164,7 +166,8 @@ class ABStageExecution_boresch_npt_v2(ABStageExecutionBase):
             raise ValueError("No visible CUDA devices found.")
 
         boresch_npt_cmd = job_context.build_cuda_mps_command(cmd, gpu_id=gpu_ids)
-        assert job_context.run_one_call(boresch_npt_cmd) == 0
+        if job_context.run_one_call(boresch_npt_cmd) != 0:
+            raise RuntimeError("Boresch HREMD simulation failed")
 
         sys_top = os.path.join(job_context.prepare_dir, "sysB.top")
         gk = GlobalKeys()

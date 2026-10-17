@@ -87,7 +87,8 @@ class ABStageExecution_sysA_em(ABStageExecutionBase):
             f"i:integrator.minimize:{em_version}",
             "i:integrator.nsnapshots:20",
         ]
-        assert 0 == job_context.run_one_call(cmd_sysA_em)
+        if job_context.run_one_call(cmd_sysA_em) != 0:
+            raise RuntimeError("sysA energy minimization failed")
         shutil.copy(os.path.join(job_context.trj_dir, "sysA_em.pdb"),
                     os.path.join(job_context.prepare_dir, "sysA_em.pdb"))
 
@@ -164,7 +165,8 @@ class ABStageExecution_sysA(ABStageExecutionBase):
         cmd.extend([f"i:ab.ilam:{vv}" for vv in range(num_lambdas)])
         mps_cmd = job_context.build_cuda_mps_command(cmd, gpu_id=gpu_ids)
 
-        assert 0 == job_context.run_one_call(mps_cmd), "sysA failed"
+        if job_context.run_one_call(mps_cmd) != 0:
+            raise RuntimeError("sysA failed")
 
         job_context.write_stage_done(stage, {"n_cuda_devices": n_cuda_devices})
 
@@ -266,8 +268,8 @@ class ABStageExecution_sysA_opt_lambdas(ABStageExecutionBase):
             mps_cmd = job_context.build_cuda_mps_command(cmd, gpu_id=gpu_ids)
 
             logger.info(f"iter={k} launching short HREMD: {iter_dir}")
-            assert 0 == job_context.run_one_call(mps_cmd, working_dir=str(iter_dir)), \
-                f"sysA opt lambdas HREMD failed at iter={k}"
+            if job_context.run_one_call(mps_cmd, working_dir=str(iter_dir)) != 0:
+                raise RuntimeError(f"sysA opt lambdas HREMD failed at iter={k}")
 
             energy_matrix_path = iter_trj / "a0_hremd" / "records.sqlite"
             records = read_records(energy_matrix_path)
