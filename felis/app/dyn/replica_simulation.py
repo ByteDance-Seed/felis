@@ -60,8 +60,8 @@ def mainfunc(argv: list[str]) -> None:
     newlog = mkdir_and_get_filepath(basedir=None, dirname=gk.dir.trj, filename=gk.filename.stem, ext=".dynlog")
     logger = setup_logger(newlog)
 
-    osys, otop = get_system_topology(gk0, enable_perturb_nonbonded=True, customLambdaSchedules=DEFAULT_LAMBDA_SCHEDULES)
-    pos0, box0 = get_initial_pos_pbc(gk0)
+    osys, otop = get_system_topology(gk, enable_perturb_nonbonded=True, customLambdaSchedules=DEFAULT_LAMBDA_SCHEDULES)
+    pos0, box0 = get_initial_pos_pbc(gk)
     traj_record_interval = gk.integrator.nstep_per_snapshot
     traj_dt_ps = gk.integrator.dt_ps
     is_boresch_restraint = False
@@ -73,14 +73,14 @@ def mainfunc(argv: list[str]) -> None:
         is_boresch_restraint=is_boresch_restraint,
         replica_id=0,
         lambda_schedules = DEFAULT_LAMBDA_SCHEDULES,
-        pressure=gk0.integrator.targetP_bar,
-        temperature=gk0.integrator.targetT_K,
+        pressure=gk.integrator.targetP_bar,
+        temperature=gk.integrator.targetT_K,
         initial_positions=pos0,
         initial_box_vectors=box0,
-        velocity_temperature_K=gk0.integrator.targetT_K,
-        velocity_seed=gk0.integrator.randomseed,
+        velocity_temperature_K=gk.integrator.targetT_K,
+        velocity_seed=gk.integrator.randomseed,
     )
-    replica_0.set_integrator(get_integrator(gk0))
+    replica_0.set_integrator(get_integrator(gk))
     replica_0.set_num_replicas(1) # This is a single replica simulation.
     platform = Platform.getPlatformByName("CUDA")
     platform_properties = {"Precision": "mixed", "DeviceIndex": "0"}

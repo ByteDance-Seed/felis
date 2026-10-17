@@ -1,7 +1,6 @@
 # Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
 # SPDX-License-Identifier: CC-BY-NC-4.0
 
-import copy
 import logging
 import os
 from pathlib import Path
@@ -41,7 +40,9 @@ class Replica:
         velocity_temperature_K: float = None,
         velocity_seed: int = None,
     ):
-        self.system = copy.deepcopy(system)
+        # Contexts are created after fork, so sharing the parent System lets
+        # workers benefit from copy-on-write without sharing runtime state.
+        self.system = system
         self.context: Context = None
         self.replica_id = replica_id
         self.lambda_schedules = lambda_schedules

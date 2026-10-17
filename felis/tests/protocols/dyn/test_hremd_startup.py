@@ -31,6 +31,21 @@ class _FakeReplica:
         self.platform_properties = properties
 
 
+def test_replicas_share_system_before_worker_fork():
+    class _System:
+
+        def __deepcopy__(self, _memo):
+            raise AssertionError("System must not be copied before worker fork")
+
+    system = _System()
+    replicas = [
+        replica_module.Replica(system=system, topology=None, replica_id=replica_id)
+        for replica_id in range(2)
+    ]
+
+    assert all(replica.system is system for replica in replicas)
+
+
 class _RecordingForkContext:
     def __init__(self, context):
         self.context = context
