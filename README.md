@@ -33,9 +33,10 @@ Felis (Free Energy of Ligand-protein InteractionS) is a source-available toolkit
 
 ## Getting started
 ### Prerequisites
-* Python version >= 3.11
+* Python version >= 3.11, < 3.13
 * CUDA Toolkit >= 12.2
 * OpenMM >= 8.5, < 8.6
+* CMake, a C++ compiler, SWIG, and NVIDIA `nvcc`
 
 ### Release compatibility
 
@@ -63,26 +64,52 @@ conda install -c conda-forge "openmm=8.5" "cuda-version=12.2"
 
 **Custom OpenMM plugins**
 
-FELIS v2 HREMD uses `PerturbNonbondedPlugin`. Install it into the selected
-OpenMM/Python environment before installing FELIS:
+Build the plugins from the repository root after activating the Python
+environment that contains OpenMM. `PerturbNonbondedPlugin` must be compiled and
+installed first:
 
 ```bash
-cd submodule/perturb-nonbonded-force
-./install.sh
-cd ../..
+./submodule/perturb-nonbonded-force/install.sh \
+  --python "$(command -v python)" \
+  --openmm-dir "$CONDA_PREFIX" \
+  --prefix "$CONDA_PREFIX" \
+  --build-dir "$PWD/build/perturb-nonbonded" \
+  --cuda-tests on
 ```
 
-`RelocationMCPlugin` is required only when `rmc_enable: true`. It depends on an
-already installed PerturbNonbondedPlugin and must be installed second:
+The installer configures CMake, compiles the Reference and CUDA kernels and
+Python wrapper, runs `ctest`, installs into the selected OpenMM environment, and
+runs a Python loading test. Verify the installed module explicitly:
 
 ```bash
-cd submodule/openmm-relocationmc-plugin
-./install.sh
-cd ../..
+python -m PerturbNonbondedPlugin.testPluginInstallation
 ```
 
-Both plugins require CUDA. Their installers fail early if `nvcc`, OpenMMCUDA,
-or the required pre-installed PerturbNonbonded libraries are unavailable.
+`RelocationMCPlugin` is required only when `rmc_enable: true`. It links against
+the installed PerturbNonbondedPlugin, so compile and install it second:
+
+```bash
+./submodule/openmm-relocationmc-plugin/install.sh \
+  --python "$(command -v python)" \
+  --openmm-dir "$CONDA_PREFIX" \
+  --perturb-prefix "$CONDA_PREFIX" \
+  --prefix "$CONDA_PREFIX" \
+  --build-dir "$PWD/build/relocationmc" \
+  --cuda-tests on
+```
+
+Verify the second plugin:
+
+```bash
+python -m RelocationMCPlugin.testPluginInstallation
+```
+
+Both builds require CUDA and write native libraries into
+`$CONDA_PREFIX/lib/plugins`. Their installers fail early if `nvcc`, OpenMMCUDA,
+or the required PerturbNonbonded headers and libraries are unavailable. In a
+driverless build image, replace `--cuda-tests on` with `--cuda-tests auto`; CUDA
+compilation remains mandatory. Run either installer with `--help` for all build
+and installation options.
 
 **Gromacs**
 
@@ -101,7 +128,9 @@ gmx --version
 
 **ProLIF**
 
-You can install ProLIF from source with the provided patch:
+FELIS requires a patched ProLIF 2.0.3 installation. ProLIF is intentionally not
+installed as a Python package dependency, so install it from source before
+installing FELIS:
 
 ```bash
 git clone https://github.com/chemosim-lab/ProLIF.git
@@ -109,6 +138,7 @@ cd ProLIF
 git checkout v2.0.3
 git apply ../submodule/prolif.patch
 pip install .
+cd ..
 ```
 
 ### Installation
