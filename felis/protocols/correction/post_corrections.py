@@ -7,7 +7,10 @@ import os
 from typing import Dict, Iterable
 
 import networkx as nx
+import numpy as np
 import pandas as pd
+
+from .ccc_rbfe_network import run_ccc_from_edge_df
 
 logger = logging.getLogger(__name__)
 
@@ -718,3 +721,324 @@ class PostCorrections(BasePostCorrections):
         self.solvent_correct(debug)
         final_result = self._autosave("final")
         return final_result
+
+
+class RBPostCorrections(BasePostCorrections):
+    """Post-corrections workflow for RBFE edge inputs."""
+
+    _LIG1_COL = "Lig 1"
+    _LIG2_COL = "Lig 2"
+    _IN_DDG_COL = "CCC ddG (kcal/mol)"
+    _WORK_DDG_COL = "__ddg"
+    _SIGMA_COL = "__sigma"
+
+    def __init__(self,
+                 all_ddgs_csv: str,
+                 correction_config: Dict,
+                 output_dir: str = None,
+                 *,
+                 rt: float = BasePostCorrections.RT,
+                 pka_rt: float | None = None):
+        super().__init__(all_ddgs_csv, correction_config, output_dir, rt=rt, pka_rt=pka_rt)
+        self.edge_df = pd.read_csv(all_ddgs_csv, sep=None, engine="python")
+
+        if {"Lig 1", "Lig 2"}.issubset(self.edge_df.columns):
+            pass
+        elif {"Ligand1", "Ligand2"}.issubset(self.edge_df.columns):
+            self.edge_df = self.edge_df.rename(columns={"Ligand1": "Lig 1", "Ligand2": "Lig 2"})
+        else:
+            raise ValueError(
+                f"Input dataframe must contain ligand endpoint columns 'Lig 1/Lig 2' or 'Ligand1/Ligand2' in "
+                f"{self.all_dgs_csv}; got columns={self.edge_df.columns.tolist()}")
+
+        required = [self._LIG1_COL, self._LIG2_COL, self._IN_DDG_COL]
+        missing = [c for c in required if c not in self.edge_df.columns]
+        if missing:
+            raise ValueError(f"Input dataframe must contain columns: {required}; missing: {missing}")
+        if self.edge_df.duplicated([self._LIG1_COL, self._LIG2_COL]).any():
+            raise ValueError(f"Duplicate directed edges in {self.all_dgs_csv}")
+
+        base = self.edge_df[[self._LIG1_COL, self._LIG2_COL, self._IN_DDG_COL]].copy()
+        for col in (self._LIG1_COL, self._LIG2_COL):
+            if base[col].isna().any() or (base[col].astype(str).str.strip() == "").any():
+                raise ValueError(f"Missing ligand names in column '{col}' in {self.all_dgs_csv}")
+        base[self._LIG1_COL] = base[self._LIG1_COL].astype(str)
+        base[self._LIG2_COL] = base[self._LIG2_COL].astype(str)
+        base[self._WORK_DDG_COL] = pd.to_numeric(base[self._IN_DDG_COL], errors="coerce")
+        if base[self._WORK_DDG_COL].isna().any():
+            raise ValueError(f"Non-numeric values detected in column '{self._IN_DDG_COL}' in {self.all_dgs_csv}")
+
+        sigma_src = pd.Series([1.0] * len(self.edge_df))
+        if sigma_src.isna().any() or (sigma_src <= 0.0).any():
+            raise ValueError(f"Invalid sigma values in {self.all_dgs_csv}")
+        base[self._SIGMA_COL] = sigma_src.to_numpy(dtype=float)
+        self._base_edges = base[[self._LIG1_COL, self._LIG2_COL, self._WORK_DDG_COL, self._SIGMA_COL]].copy()
+
+    def _autosave_edges(self, step_name: str, edges_df: pd.DataFrame) -> str:
+        df_out = edges_df.copy()
+        if self._WORK_DDG_COL in df_out.columns and "ddG (kcal/mol)" not in df_out.columns:
+            df_out = df_out.rename(columns={self._WORK_DDG_COL: "ddG (kcal/mol)"})
+        if self._SIGMA_COL in df_out.columns and "sigma" not in df_out.columns:
+            df_out = df_out.rename(columns={self._SIGMA_COL: "sigma"})
+
+        if self.output_dir:
+            base = os.path.basename(self.basename)
+            out_path = os.path.join(self.output_dir, f"{base}_edges_{step_name}.tsv")
+        else:
+            out_path = f"{self.basename}_edges_{step_name}.tsv"
+        df_out.to_csv(out_path, sep="\t", index=False)
+        print(f"Saved edges {step_name} results to {out_path}")
+        return out_path
+
+    def _build_graph_from_node_df(self, node_df: pd.DataFrame, *, prev_graph: nx.Graph | None = None):
+        if "Ligand" not in node_df.columns or "dG (kcal/mol)" not in node_df.columns:
+            raise ValueError("node_df must contain columns: 'Ligand', 'dG (kcal/mol)'")
+        self.g = nx.Graph()
+        for _, row in node_df.iterrows():
+            lig = str(row["Ligand"])
+            dg = float(row["dG (kcal/mol)"])
+            ligand_parts = lig
+            if prev_graph is not None and prev_graph.has_node(lig):
+                ligand_parts = prev_graph.nodes[lig].get("ligand_parts", lig)
+            self.g.add_node(lig, dG=dg, ligand_parts=ligand_parts, avg_dG_parts=dg)
+
+    def _apply_symmetry_to_edges(self, edges_df: pd.DataFrame) -> pd.DataFrame:
+        df = edges_df.copy()
+        offsets = {
+            str(lig): -self.RT * math.log(float(n))
+            for lig, n in self.correction_config.get("symmetry", {}).items()
+        }
+        lig1 = df[self._LIG1_COL].astype(str)
+        lig2 = df[self._LIG2_COL].astype(str)
+        c1 = lig1.map(lambda x: offsets.get(x, 0.0))
+        c2 = lig2.map(lambda x: offsets.get(x, 0.0))
+        df[self._WORK_DDG_COL] = df[self._WORK_DDG_COL].astype(float) + (c2 - c1)
+        return df
+
+    def _rbfe_rotamer_mode_deltas(self) -> dict[str, float]:
+        deltas: dict[str, float] = {}
+        for grp in (self.correction_config.get("rotamer") or []):
+            if not grp:
+                continue
+            nodes = [str(x) for x in grp]
+            missing = [n for n in nodes if not self.g.has_node(n)]
+            if missing:
+                raise ValueError(f"Rotamer list {nodes} contains missing nodes in current graph: {missing}")
+            dgs = [float(self.g.nodes[n]["dG"]) for n in nodes]
+            for n in nodes:
+                node_dg = float(self.g.nodes[n]["dG"])
+                deltas[n] = -self.RT * np.log(sum(math.exp(-(dg - node_dg) / self.RT) for dg in dgs))
+        return deltas
+
+    def _apply_mode_deltas_to_edges(self, edges_df: pd.DataFrame,
+                                    deltas: dict[str, float]) -> pd.DataFrame:
+        df = edges_df.copy()
+        lig1 = df[self._LIG1_COL].astype(str)
+        lig2 = df[self._LIG2_COL].astype(str)
+        d1 = lig1.map(lambda x: deltas.get(x, 0.0)).astype(float)
+        d2 = lig2.map(lambda x: deltas.get(x, 0.0)).astype(float)
+        df[self._WORK_DDG_COL] = df[self._WORK_DDG_COL].astype(float) + (d2 - d1)
+        return df
+
+    def _rbfe_rotamer_mode_to_merged_label(self) -> dict[str, str]:
+        mode_to_label: dict[str, str] = {}
+        for grp in (self.correction_config.get("rotamer") or []):
+            if not grp:
+                continue
+            modes = [str(x) for x in grp]
+            merged = "+".join(modes)
+            for mode in modes:
+                previous = mode_to_label.get(mode)
+                if previous is not None and previous != merged:
+                    raise ValueError(f"Rotamer mode '{mode}' appears in multiple groups: {previous} vs {merged}")
+                mode_to_label[mode] = merged
+        return mode_to_label
+
+    def _prev_graph_with_rotamer_merged_nodes(self, prev_g: nx.Graph) -> nx.Graph:
+        graph = prev_g.copy()
+        for grp in (self.correction_config.get("rotamer") or []):
+            if not grp:
+                continue
+            modes = [str(x) for x in grp]
+            merged = "+".join(modes)
+            if not graph.has_node(merged):
+                graph.add_node(merged, ligand_parts=list(modes), dG=0.0, avg_dG_parts=0.0)
+        return graph
+
+    def _collapse_rotamer_modes_in_edges(self, edges_df: pd.DataFrame) -> pd.DataFrame:
+        df = edges_df.copy()
+        mode_to_label = self._rbfe_rotamer_mode_to_merged_label()
+        df[self._LIG1_COL] = df[self._LIG1_COL].astype(str).map(lambda x: mode_to_label.get(x, x))
+        df[self._LIG2_COL] = df[self._LIG2_COL].astype(str).map(lambda x: mode_to_label.get(x, x))
+        df = df[df[self._LIG1_COL] != df[self._LIG2_COL]].copy()
+        if df.empty:
+            raise ValueError("All edges collapsed to self-edges after rotamer endpoint collapsing; cannot run CCC")
+
+        dedup_rows = []
+        for (lig1, lig2), group in df.groupby([self._LIG1_COL, self._LIG2_COL], sort=False):
+            values = group[self._WORK_DDG_COL].to_numpy(dtype=float)
+            if values.size > 1 and not math.isclose(float(np.max(values) - np.min(values)), 0.0, abs_tol=1e-6):
+                raise ValueError(
+                    f"Duplicate directed edge {lig1}->{lig2} has differing ddG values after collapsing: "
+                    f"{values.tolist()}")
+            row = group.iloc[0].to_dict()
+            row[self._WORK_DDG_COL] = float(np.mean(values))
+            dedup_rows.append(row)
+        return pd.DataFrame(dedup_rows)
+
+    def _run_ccc(self, edges_df: pd.DataFrame, *, debug: bool = False):
+        return run_ccc_from_edge_df(
+            edges_df,
+            lig1_col=self._LIG1_COL,
+            lig2_col=self._LIG2_COL,
+            ddg_col=self._WORK_DDG_COL,
+            sigma_col=self._SIGMA_COL,
+            out_lig1_col=self._LIG1_COL,
+            out_lig2_col=self._LIG2_COL,
+            out_ddg_col=self._WORK_DDG_COL,
+            out_sigma_col=self._SIGMA_COL,
+            debug=debug,
+        )
+
+    def _build_graph_from_consistent_edges(self, edges_df: pd.DataFrame, *, tol: float = 1e-3):
+        required = {self._LIG1_COL, self._LIG2_COL, self._WORK_DDG_COL}
+        if not required.issubset(edges_df.columns):
+            raise ValueError(f"edges_df must contain columns: {sorted(required)}; got {edges_df.columns.tolist()}")
+
+        adjacency: dict[str, list[tuple[str, float]]] = {}
+        for _, row in edges_df[[self._LIG1_COL, self._LIG2_COL, self._WORK_DDG_COL]].iterrows():
+            lig1 = str(row[self._LIG1_COL])
+            lig2 = str(row[self._LIG2_COL])
+            ddg = float(row[self._WORK_DDG_COL])
+            adjacency.setdefault(lig1, []).append((lig2, ddg))
+            adjacency.setdefault(lig2, []).append((lig1, -ddg))
+
+        node_dgs: dict[str, float] = {}
+        for start in adjacency:
+            if start in node_dgs:
+                continue
+            node_dgs[start] = 0.0
+            stack = [start]
+            while stack:
+                current = stack.pop()
+                for neighbor, delta in adjacency.get(current, []):
+                    expected = node_dgs[current] + float(delta)
+                    if neighbor not in node_dgs:
+                        node_dgs[neighbor] = expected
+                        stack.append(neighbor)
+                    elif not math.isclose(node_dgs[neighbor] - expected, 0.0, abs_tol=tol):
+                        raise ValueError(
+                            f"Inconsistent edge constraints for {current}->{neighbor}: "
+                            f"existing dG[{neighbor}]={node_dgs[neighbor]}, expected {expected}")
+
+        if node_dgs:
+            mean = float(np.mean(list(node_dgs.values())))
+            node_dgs = {ligand: dg - mean for ligand, dg in node_dgs.items()}
+        self.g = nx.Graph()
+        for ligand, dg in node_dgs.items():
+            self.g.add_node(ligand, dG=dg, ligand_parts=ligand, avg_dG_parts=dg)
+
+    def _graph_to_edges_from_base(self) -> pd.DataFrame:
+        mapping = self._orig_ligand_to_current_node()
+        rows = []
+        for _, row in self._base_edges[[self._LIG1_COL, self._LIG2_COL]].iterrows():
+            original1 = str(row[self._LIG1_COL])
+            original2 = str(row[self._LIG2_COL])
+            node1 = mapping.get(original1)
+            node2 = mapping.get(original2)
+            if node1 is None or node2 is None:
+                raise ValueError(f"Missing mapped node for edge endpoint: {original1}->{original2}")
+            if node1 == node2:
+                continue
+            rows.append({
+                self._LIG1_COL: node1,
+                self._LIG2_COL: node2,
+                self._WORK_DDG_COL: float(self.g.nodes[node2]["dG"]) - float(self.g.nodes[node1]["dG"]),
+                self._SIGMA_COL: 1.0,
+            })
+
+        output = pd.DataFrame(rows)
+        if output.empty:
+            raise ValueError("All edges collapsed to self-edges after node merging; cannot run CCC")
+
+        dedup_rows = []
+        for (lig1, lig2), group in output.groupby([self._LIG1_COL, self._LIG2_COL], sort=False):
+            values = group[self._WORK_DDG_COL].to_numpy(dtype=float)
+            if any(not math.isclose(float(value), float(values[0]), abs_tol=1e-8) for value in values[1:]):
+                raise ValueError(f"Duplicate directed edge {lig1}->{lig2} has differing ddG values: {values.tolist()}")
+            dedup_rows.append(group.iloc[0].to_dict())
+        return pd.DataFrame(dedup_rows)
+
+    def run(self, debug: bool = False, *, rotamer_route: str | None = None) -> str:
+        has_symmetry = bool(self.correction_config.get("symmetry", {}))
+        has_rotamer = bool(self.correction_config.get("rotamer"))
+        has_pka = bool(self.correction_config.get("pka_tautomer"))
+        has_solvent = bool(self.correction_config.get("solvent_correction"))
+
+        edges_symmetry = self._apply_symmetry_to_edges(self._base_edges)
+        self._autosave_edges("symm", edges_symmetry)
+        if has_symmetry:
+            result = self._run_ccc(edges_symmetry, debug=debug)
+            self._autosave_edges("symm_ccc", result.edge_df)
+            self._build_graph_from_node_df(result.node_df)
+        else:
+            try:
+                self._build_graph_from_consistent_edges(edges_symmetry, tol=1e-3)
+            except ValueError:
+                result = self._run_ccc(edges_symmetry, debug=debug)
+                self._autosave_edges("symm_ccc", result.edge_df)
+                self._build_graph_from_node_df(result.node_df)
+        self._autosave("before_rotamer_correct")
+
+        if has_rotamer and rotamer_route == "edge_shift_ccc":
+            edges_conf = self._graph_to_edges_from_base()
+            self._autosave_edges("before_conf_shift", edges_conf)
+            shifted = self._apply_mode_deltas_to_edges(edges_conf, self._rbfe_rotamer_mode_deltas())
+            self._autosave_edges("conf_shift", shifted)
+            result = self._run_ccc(shifted, debug=debug)
+            self._autosave_edges("conf_shift_ccc", result.edge_df)
+            self._build_graph_from_node_df(result.node_df)
+            self._autosave("conf_shift_ccc")
+
+            rebuilt = self._graph_to_edges_from_base()
+            self._autosave_edges("conf_shift_ccc_rebuild", rebuilt)
+            collapsed = self._collapse_rotamer_modes_in_edges(rebuilt)
+            self._autosave_edges("conf_shift_ccc_collapsed", collapsed)
+            result = self._run_ccc(collapsed, debug=debug)
+            self._autosave_edges("conf_shift_ccc_collapsed_ccc", result.edge_df)
+            previous = self._prev_graph_with_rotamer_merged_nodes(self.g)
+            self._build_graph_from_node_df(result.node_df, prev_graph=previous)
+            self._autosave("conf_shift_ccc_collapsed_ccc")
+        elif has_rotamer:
+            self.conf_correct(debug=debug)
+            self._autosave("conf_correct_before_ccc")
+            result = self._run_ccc(self._graph_to_edges_from_base(), debug=debug)
+            self._autosave_edges("conf_shift_ccc", result.edge_df)
+            previous = self._prev_graph_with_rotamer_merged_nodes(self.g)
+            self._build_graph_from_node_df(result.node_df, prev_graph=previous)
+            self._autosave("after_rotamer_correct_ccc")
+        else:
+            self._autosave("before_pka_correct")
+
+        self.pka_taut_correct(debug=debug)
+        edges_pka = self._graph_to_edges_from_base()
+        self._autosave_edges("pka", edges_pka)
+        if has_pka:
+            result = self._run_ccc(edges_pka, debug=debug)
+            self._autosave_edges("after_pka_correct_ccc", result.edge_df)
+            previous = self.g
+            self._build_graph_from_node_df(result.node_df, prev_graph=previous)
+        else:
+            self._autosave_edges("after_pka_correct_ccc", edges_pka)
+
+        self.solvent_correct(debug=debug)
+        edges_solvent = self._graph_to_edges_from_base()
+        self._autosave_edges("solvent", edges_solvent)
+        if has_solvent:
+            result = self._run_ccc(edges_solvent, debug=debug)
+            self._autosave_edges("final_edges", result.edge_df)
+            previous = self.g
+            self._build_graph_from_node_df(result.node_df, prev_graph=previous)
+        else:
+            self._autosave_edges("final_edges", edges_solvent)
+        return self._autosave("final")
