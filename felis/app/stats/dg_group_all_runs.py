@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: CC-BY-NC-4.0
 
 import argparse
 from pathlib import Path
@@ -35,9 +35,12 @@ df_runs = [read_result_one_run(irun, group_id_dict, select_method) for irun in l
 df_comparedG, df_comparesol, df_comparepro, df_compareres = compare_full_dGs(bm_full,
                                                                              [df_full for df_full, _ in df_runs])
 df_comparedG.to_csv(Path(outdir) / "compare-dG.tsv", sep="\t", float_format="%.4f", index=False)
-df_comparesol.to_csv(Path(outdir) / "compare-sol.tsv", sep="\t", float_format="%.4f", index=False)
-df_comparepro.to_csv(Path(outdir) / "compare-pro.tsv", sep="\t", float_format="%.4f", index=False)
-df_compareres.to_csv(Path(outdir) / "compare-res.tsv", sep="\t", float_format="%.4f", index=False)
+if df_comparesol is not None:
+    df_comparesol.to_csv(Path(outdir) / "compare-sol.tsv", sep="\t", float_format="%.4f", index=False)
+if df_comparepro is not None:
+    df_comparepro.to_csv(Path(outdir) / "compare-pro.tsv", sep="\t", float_format="%.4f", index=False)
+if df_compareres is not None:
+    df_compareres.to_csv(Path(outdir) / "compare-res.tsv", sep="\t", float_format="%.4f", index=False)
 
 # filtered dGs: plot and metrics
 # df_compare_filtered, np_dG_exp, np_dG_mean, np_dG_runs, mean_metrics, list_of_metrics = compare_filtered_dGs(

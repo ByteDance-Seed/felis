@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: CC-BY-NC-4.0
 
 """Site-level bootstrap for FELIS artifact tests.
 
@@ -16,9 +16,6 @@ import os
 if os.environ.get("FELIS_TEST_ARTIFACTS", "").strip() == "1":
     from felis.tests.testkit.openmm.shims import install_shims_openmm
     install_shims_openmm()
-
-    from felis.tests.testkit.openmmtools.shims import install_shims_openmmtools
-    install_shims_openmmtools()
 
     from felis.tests.testkit.bytemol.shims import install_shims_bytemol
     install_shims_bytemol()

@@ -1,0 +1,26 @@
+PerturbNonbondedPlugin
+Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
+
+This plugin is free software: you can redistribute it and/or modify it under
+the terms of the GNU Lesser General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version.
+
+This plugin is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+A PARTICULAR PURPOSE. See the GNU Lesser General Public License for more
+details.
+
+The applicable GNU LGPL version 3 and GNU GPL version 3 terms and their
+authoritative URLs are identified in COPYING.LESSER and COPYING, respectively.
+
+SPDX-License-Identifier: LGPL-3.0-or-later
+
+Much of this plugin is adapted from the OpenMM 8.5.0 NonbondedForce source
+code (https://github.com/openmm/openmm). OpenMM-derived API, Reference
+platform, and serialization portions remain available under the MIT terms
+included in their source files; OpenMM-derived CUDA/common platform portions
+remain under the LGPL terms included in their source files. Build scripts and
+Windows export headers adapted from the OpenMM example plugin retain its MIT
+terms. See the repository THIRD_PARTY_NOTICES. This notice does not remove or
+replace any of those notices.

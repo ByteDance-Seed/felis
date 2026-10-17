@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: CC-BY-NC-4.0
 
 FREQ_THRESHOLD = 0.4
 VALID_ANGLE_RANGE = (45.0, 135.0)

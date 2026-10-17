@@ -1,0 +1,28 @@
+// Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
+// SPDX-License-Identifier: CC-BY-NC-4.0
+
+#ifndef OPENMM_CUDA_RELOCATIONMC_KERNEL_SOURCES_H_
+#define OPENMM_CUDA_RELOCATIONMC_KERNEL_SOURCES_H_
+
+
+
+#include <string>
+
+namespace OpenMM {
+namespace RelocationMCPlugin {
+
+/**
+ * This class is a central holding place for the source code of CUDA kernels.
+ * The CMake build script inserts declarations into it based on the .cu files in the
+ * kernels subfolder.
+ */
+
+class CudaRelocationMCKernelSources {
+public:
+@CUDA_FILE_DECLARATIONS@
+};
+
+} // namespace RelocationMCPlugin
+} // namespace OpenMM
+
+#endif /*OPENMM_CUDA_RELOCATIONMC_KERNEL_SOURCES_H_*/

@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: CC-BY-NC-4.0
 
 """Tests for the GlobalKeys dataclass and its sub-dataclasses."""
 
@@ -51,12 +51,13 @@ def test_default_construction_values():
     assert gk.integrator.targetP_bar == 1.01325
     assert gk.integrator.npt == 0
     assert gk.integrator.npt_mc_freq == 25
+    assert gk.integrator.hmr is None
 
     # openmm defaults
     assert gk.openmm.platform == "CUDA"
     assert gk.openmm.precision == "mixed"
     assert gk.openmm.params_ecosystem == "gromacs"
-    assert gk.openmm.checkpoint_interval == 50
+    assert gk.openmm.checkpoint_interval == 125000
 
     # posres defaults
     assert gk.posres.atoms is None
@@ -110,6 +111,13 @@ def test_update_by_tkv_float():
     gk.update_by_tkv("f:integrator.targetT_K:310.0")
     assert gk.integrator.targetT_K == 310.0
     assert isinstance(gk.integrator.targetT_K, float)
+
+
+def test_update_by_tkv_float_none():
+    """An empty float value after the last colon should set the field to None."""
+    gk = GlobalKeys()
+    gk.update_by_tkv("f:integrator.hmr:")
+    assert gk.integrator.hmr is None
 
 
 def test_update_by_tkv_string():
@@ -329,3 +337,33 @@ def test_error_invalid_cfg_field_name(tmp_path: Path):
     gk = GlobalKeys()
     with pytest.raises(AssertionError):
         gk.update_by_cfg(str(cfg_path))
+
+
+def test_relocation_mc_num_candidate_sites_is_direct_mtm_pool_size(tmp_path: Path):
+    """YAML and tkv preserve the documented MTM pool size K unchanged."""
+    from felis.protocols.abfe.config_types import ABFEInputConfig
+
+    fields_by_name = {
+        name: (typ, default, help_text)
+        for name, typ, default, help_text in ABFEInputConfig.get_list_of_field_type_default_help_tuples()
+    }
+    typ, default, help_text = fields_by_name["rmc_num_candidate_sites"]
+
+    assert typ is int
+    assert default == 16384
+    assert "pool size K" in help_text
+    assert "default is K=16384" in help_text
+    assert "no 60x multiplier" in help_text
+
+    cfg_path = tmp_path / "abfe.yaml"
+    cfg_path.write_text(yaml.dump({
+        "rmc_enable": True,
+    }))
+    acfg = ABFEInputConfig.from_file(str(cfg_path))
+    flags = acfg.relocation_mc_tkv()
+    assert "i:relocation_mc.num_candidate_sites:16384" in flags
+
+    gk = GlobalKeys()
+    for flag in flags:
+        gk.update_by_tkv(flag)
+    assert gk.relocation_mc.num_candidate_sites == 16384

@@ -1,0 +1,25 @@
+// Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
+// SPDX-License-Identifier: LGPL-3.0-or-later
+
+#ifndef OPENMM_CUDA_PERTURBNONBONDEDFORCE_KERNEL_SOURCES_H_
+#define OPENMM_CUDA_PERTURBNONBONDEDFORCE_KERNEL_SOURCES_H_
+
+
+#include <string>
+
+namespace PerturbNonbondedPlugin {
+
+/**
+ * This class is a central holding place for the source code of CUDA kernels.
+ * The CMake build script inserts declarations into it based on the .cu files in the
+ * kernels subfolder.
+ */
+
+class CudaPerturbNonbondedKernelSources {
+public:
+@CUDA_FILE_DECLARATIONS@
+};
+
+} // namespace PerturbNonbondedPlugin
+
+#endif /*OPENMM_CUDA_PERTURBNONBONDEDFORCE_KERNEL_SOURCES_H_*/

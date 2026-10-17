@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: CC-BY-NC-4.0
 
 import argparse
 from pathlib import Path
@@ -41,7 +41,8 @@ def main(abipt_cfg: ABFEInputConfig):
             copy_tree(_outdir, _tmpdir)
 
     try:
-        from felis.protocols.abfe.main_abfe4 import mainfunc
+        from felis.protocols.abfe_v2.abfe_workflow import mainfunc
+
         mainfunc(abipt_cfg)
     except Exception as e:
         logger.error(e)

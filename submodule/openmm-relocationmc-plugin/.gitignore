@@ -1,0 +1,13 @@
+build/
+dist/
+output/
+*.egg-info/
+__pycache__/
+*.py[cod]
+*.o
+*.so
+*.dylib
+*.dll
+*.whl
+*.tar.gz
+*.nsys-rep

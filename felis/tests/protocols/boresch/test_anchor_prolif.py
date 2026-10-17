@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: CC-BY-NC-4.0
 
 def test_collect_candidate_pairs_from_prolif_filters_and_dedup(monkeypatch):
     import felis.protocols.boresch.anchor_prolif as mod

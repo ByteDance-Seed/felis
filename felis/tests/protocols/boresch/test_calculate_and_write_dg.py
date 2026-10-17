@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: CC-BY-NC-4.0
 
 def test_calculate_and_write_dg_to_file_formats_output(tmp_path, monkeypatch):
     import felis.protocols.boresch.calculate_and_write_dg as mod

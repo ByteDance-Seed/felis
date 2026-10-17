@@ -24,30 +24,65 @@
 <p align="center">
   <a href="https://arxiv.org/pdf/2603.22274">
     <img src="https://img.shields.io/badge/Felis-Arxiv-red"></a>
-  <a href="http://www.apache.org/licenses/LICENSE-2.0">
-    <img src="https://img.shields.io/badge/License-Apache-blue"></a>
+  <a href="https://creativecommons.org/licenses/by-nc/4.0/">
+    <img src="https://img.shields.io/badge/License-CC_BY--NC_4.0-blue"></a>
 </p>
 
-Felis (Free Energy of Ligand-protein InteractionS) is an open-source toolkit for automated and scalable protein-ligand absolute binding free energy (ABFE) calculations. It is designed for high-throughput structure-based drug discovery and supports a practical ABFE workflow without the scaffold constraints of RBFE methods.
+Felis (Free Energy of Ligand-protein InteractionS) is a source-available toolkit for automated and scalable protein-ligand absolute binding free energy (ABFE) calculations. It is designed for high-throughput structure-based drug discovery and supports a practical ABFE workflow without the scaffold constraints of RBFE methods.
 
 
 ## Getting started
 ### Prerequisites
 * Python version >= 3.11
-* CUDA >= 12.6
+* CUDA Toolkit >= 12.2
+* OpenMM >= 8.5, < 8.6
+
+### Release compatibility
+
+| Component | Version |
+| --- | --- |
+| FELIS | 0.2.0 |
+| PerturbNonbondedPlugin | 0.1.0 |
+| RelocationMCPlugin | 0.1.0 |
+| OpenMM | >= 8.5, < 8.6 |
+| CUDA Toolkit | >= 12.2 |
+
+The native plugins use OpenMM CUDA implementation APIs, so the OpenMM minor
+version is intentionally constrained. This release was validated with OpenMM
+8.5 and CUDA Toolkit 12.2 on NVIDIA L20 GPUs.
 
 ### Dependencies
 
-**OpenMM & OpenMMTools**
+**OpenMM**
 
-You can install OpenMM and OpenMMTools using `conda`:
+You can install OpenMM using `conda`:
 
 ```bash
-conda install -c conda-forge openmm cuda-version=12.6
-conda config --add channels omnia --add channels conda-forge
-conda install openmmtools
-conda remove jax jaxlib
+conda install -c conda-forge "openmm=8.5" "cuda-version=12.2"
 ```
+
+**Custom OpenMM plugins**
+
+FELIS v2 HREMD uses `PerturbNonbondedPlugin`. Install it into the selected
+OpenMM/Python environment before installing FELIS:
+
+```bash
+cd submodule/perturb-nonbonded-force
+./install.sh
+cd ../..
+```
+
+`RelocationMCPlugin` is required only when `rmc_enable: true`. It depends on an
+already installed PerturbNonbondedPlugin and must be installed second:
+
+```bash
+cd submodule/openmm-relocationmc-plugin
+./install.sh
+cd ../..
+```
+
+Both plugins require CUDA. Their installers fail early if `nvcc`, OpenMMCUDA,
+or the required pre-installed PerturbNonbonded libraries are unavailable.
 
 **Gromacs**
 
@@ -78,7 +113,7 @@ pip install .
 
 ### Installation
 
-After resolving the dependencies above, you can install Felis and its required Python packages by running:
+After installing the dependencies and required native plugin, install FELIS:
 
 ```bash
 pip install .
@@ -94,10 +129,16 @@ bash run.sh
 ```
 
 The script prepares input files from `pl_bfe_dataset` and runs the full ABFE workflow.
+The example configuration includes a documented RelocationMC section with
+`rmc_enable: false`. Enable it only after installing RelocationMCPlugin; the
+setting applies only to the protein/sysB leg.
 
 ## License
-- The code portion of this project is licensed under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0).
-- The dataset in the `pl_bfe_dataset/` directory is licensed under the [Creative Commons Attribution 4.0 International License](https://creativecommons.org/licenses/by/4.0/).
+- FELIS-owned code and documentation are licensed under the [Creative Commons Attribution-NonCommercial 4.0 International License](https://creativecommons.org/licenses/by-nc/4.0/), except where a file or directory states otherwise.
+- `submodule/openmm-relocationmc-plugin/` is licensed under [CC BY-NC 4.0](submodule/openmm-relocationmc-plugin/LICENSE).
+- `submodule/perturb-nonbonded-force/` is licensed under the [GNU Lesser General Public License v3.0 or later](submodule/perturb-nonbonded-force/LICENSE). Portions adapted from OpenMM 8.5.0 `NonbondedForce` retain their embedded MIT or LGPL notices.
+- `pl_bfe_dataset/` and its subdirectories retain their own license files. In particular, the dataset root is CC BY 4.0, while some included collections use Apache-2.0 or MIT terms.
+- Third-party portions retain the copyright and license notices included in their source files and in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
 
 ## Citation
 If you find Felis useful for your research and applications, feel free to give us a star ⭐ or cite us using:
