@@ -238,3 +238,6 @@ packages.dot
 
 # debug
 debug.ipynb
+
+# traecli
+.trae/**

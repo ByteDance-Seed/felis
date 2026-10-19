@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: CC-BY-NC-4.0
 
 import argparse
 from pathlib import Path
@@ -11,19 +11,33 @@ from felis.utils.setup_logger import setup_logger
 
 logger = setup_logger()
 
-ap = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-ap.add_argument("--abfecfg", type=str, default=None, help="common configs; will be overwritten by other args")
+
+def _parse_bool(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in ("true", "1", "yes", "on"):
+        return True
+    if normalized in ("false", "0", "no", "off"):
+        return False
+    raise argparse.ArgumentTypeError(
+        f"expected a boolean value (true/false, 1/0, yes/no, on/off), got {value!r}"
+    )
 
 
-def setup_cfg():
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("--abfecfg", type=str, default=None, help="common configs; will be overwritten by other args")
     for n, t, _, h in ABFEInputConfig.get_list_of_field_type_default_help_tuples():
         if get_origin(t) == list:
             list_args = get_args(t)
             assert len(list_args) == 1, f"list type {t} should have args of length 1"
-            ap.add_argument(f"--{n}", type=list_args[0], nargs="*", default=None, help=h)
+            parser.add_argument(f"--{n}", type=list_args[0], nargs="*", default=None, help=h)
         else:
-            ap.add_argument(f"--{n}", type=t, default=None, help=h)
-    args = ap.parse_args()
+            parser.add_argument(f"--{n}", type=_parse_bool if t is bool else t, default=None, help=h)
+    return parser
+
+
+def setup_cfg(argv=None):
+    args = _build_parser().parse_args(argv)
 
     abipt_cfg = ABFEInputConfig.from_file(args.abfecfg)
     abipt_cfg.update_by_dict(vars(args))
@@ -41,7 +55,8 @@ def main(abipt_cfg: ABFEInputConfig):
             copy_tree(_outdir, _tmpdir)
 
     try:
-        from felis.protocols.abfe.main_abfe4 import mainfunc
+        from felis.protocols.abfe_v2.abfe_workflow import mainfunc
+
         mainfunc(abipt_cfg)
     except Exception as e:
         logger.error(e)

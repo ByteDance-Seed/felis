@@ -1,0 +1,77 @@
+Third-Party Notices
+===================
+
+PyMBAR
+------
+
+felis/utils/bar.py contains code derived from PyMBAR.
+
+Copyright 2017 Michael R. Shirts, John D. Chodera, Shirts Lab, Chodera Lab
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+OpenMM
+------
+
+submodule/perturb-nonbonded-force contains code adapted from the OpenMM 8.5.0
+NonbondedForce implementation (https://github.com/openmm/openmm). OpenMM-derived
+API, Reference platform, and serialization portions are available under the
+MIT License; OpenMM-derived CUDA/common platform portions are available under
+the GNU Lesser General Public License version 3 or later. The applicable
+copyright and license notices are retained in each source file, and the
+LGPL/GPL texts are included as submodule/perturb-nonbonded-force/COPYING.LESSER
+and submodule/perturb-nonbonded-force/COPYING.
+
+Portions copyright (c) 2008-2025 Stanford University and the Authors.
+
+OpenMM Example Plugin
+---------------------
+
+The build scripts and Windows export headers of
+submodule/perturb-nonbonded-force and submodule/openmm-relocationmc-plugin,
+including platforms/cuda/EncodeCUDAFiles.cmake, are adapted from the OpenMM
+example plugin (https://github.com/openmm/openmmexampleplugin).
+
+Portions copyright (c) 2014-2021 Stanford University and the Authors.
+Authors: Peter Eastman
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS, CONTRIBUTORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+Additional notices
+------------------
+
+Some files contain portions adapted from other open-source projects, including
+OpenFF Toolkit and freeenergylab. Their copyright and license notices are
+retained in the relevant source files.

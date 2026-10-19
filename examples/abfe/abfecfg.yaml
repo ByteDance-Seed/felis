@@ -4,3 +4,30 @@ sdffile: input/ejm_31.sdf
 itpfile: input/ejm_31.itp
 stages: ["all"]
 outdir: tyk2_example
+
+# ABFE v2 production defaults: 5 ns per replica for both legs.
+md_integrator_hmr: 1.5
+md_integrator_dt_ps: 0.004
+md_exchange_interval: 250
+md_traj_interval: 125000
+md_checkpoint_interval: 125000
+md_sol_nsnapshots: 10
+md_pro_nsnapshots: 10
+# Boresch restraint sampling: 300 * 2500 * 0.004 ps = 3 ns.
+md_boresch_nsnapshots: 300
+md_boresch_traj_interval: 2500
+
+# Optional RelocationMC enhanced water sampling. This is applied only to the
+# protein/sysB leg and requires the CUDA-enabled PerturbNonbondedPlugin and
+# RelocationMCPlugin to be installed. Keep disabled for the basic example.
+rmc_enable: false
+rmc_exchange_frequency: 1000
+# Direct MTM proposal-pool size K. There is no legacy 60x expansion.
+rmc_num_candidate_sites: 16384
+# Derived radius = scale * maximum ligand heavy-atom separation + offset.
+rmc_sphere_radius_scale: 0.5
+rmc_sphere_radius_offset_nm: 0.3
+# Alternatively, set an explicit radius and omit the derived-radius controls:
+# rmc_sphere_radius_nm: 1.2
+rmc_random_seed: 20260829
+rmc_exclude_alchemical_water: true

@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: CC-BY-NC-4.0
 
 import logging
 import os
@@ -17,10 +17,15 @@ logger = logging.getLogger(__name__)
 
 class JobContext:
 
+    # TODO: Recheck this function for 16 GPUs performance. each process requires individual MPS pipe and log directory.
     @classmethod
-    def build_cuda_mps_mpirun_command(cls, common_cmd: list[str], gpu_id: int, np: int) -> list[str]:
-        pipe_dir = f"/tmp/mps_{gpu_id}"
-        log_dir = f"/tmp/mps_log_{gpu_id}"
+    def build_cuda_mps_command(cls, common_cmd: list[str], gpu_id: list[int] = None) -> list[str]:
+        if not gpu_id:
+            raise ValueError("gpu_id must be provided")
+        gpu_id_str = ",".join(map(str, gpu_id))
+        r = os.urandom(16).hex()
+        pipe_dir = f"/tmp/mps_{r}"
+        log_dir = f"/tmp/mps_log_{r}"
         bash_str = rf"""
     export CUDA_MPS_PIPE_DIRECTORY={pipe_dir}
     export CUDA_MPS_LOG_DIRECTORY={log_dir}
@@ -35,9 +40,9 @@ class JobContext:
     unset CUDA_VISIBLE_DEVICES
     nvidia-cuda-mps-control -d 2>/dev/null || true
 
-    export CUDA_VISIBLE_DEVICES={gpu_id}
-    mpirun --allow-run-as-root -np {np} -x NP_VALUE={np} {shlex.join(common_cmd)}
-    """
+    export CUDA_VISIBLE_DEVICES={gpu_id_str}
+    {shlex.join(common_cmd)}
+    """    
         return ["bash", "-c", bash_str]
 
     def __init__(self, working_dir: str = ".", extra_envs: dict[str, str] = None, use_mps: bool = False):

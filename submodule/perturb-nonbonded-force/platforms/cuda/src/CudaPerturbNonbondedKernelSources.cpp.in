@@ -1,0 +1,7 @@
+// Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
+// SPDX-License-Identifier: LGPL-3.0-or-later
+
+#include "CudaPerturbNonbondedKernelSources.h"
+
+using namespace PerturbNonbondedPlugin;
+using namespace std;

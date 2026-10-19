@@ -1,18 +1,23 @@
 # Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: CC-BY-NC-4.0
 
 from dataclasses import dataclass
+from dataclasses import field
 from dataclasses import fields
 from enum import Enum
 import importlib
 from pathlib import Path
 import tempfile
 
-import numpy as np
-
 from felis.configs import GlobalKeys
 from felis.configs import load_config
 from felis.configs import MinimizeRelaxOption
+
+
+ABFE_V2_BORESCH_SAMPLING_PROTOCOLS = (
+    "hremd_same_temperature",
+    "long_npt",
+)
 
 
 def _int_or_str(value):
@@ -24,33 +29,31 @@ def _int_or_str(value):
 
 class ABStage(Enum):
     makebox = "makebox"
-
-    boresch_em = "boresch_em"
-    boresch_npt = "boresch_npt"
-    boresch_post_process = "boresch_post_process"
-
-    sysA_em = "sysA_em"
-    sysA = "sysA"  # ligand in solvent e: 1->0; v: 1->0
-    sysB_em = "sysB_em"
-    sysB = "sysB"  # ligand in protein v: 0->1; e: 0->1; res: 1->0
-
-    mbar = "mbar"
-    summarize = "summarize"
-
+    boresch_em_v2 = "boresch_em_v2"
+    boresch_npt_v2 = "boresch_npt_v2"
+    boresch_post_process_v2 = "boresch_post_process_v2"
+    sysA_em_v2 = "sysA_em_v2"
+    sysA_opt_lambdas_v2 = "sysA_opt_lambdas_v2"
+    sysA_v2 = "sysA_v2"
+    sysB_em_v2 = "sysB_em_v2"
+    sysB_opt_lambdas_v2 = "sysB_opt_lambdas_v2"
+    sysB_v2 = "sysB_v2"
+    post_analysis_v2 = "post_analysis_v2"
 
 _ABStageExecutionRegistry = {}
 
 _ABStageExecutionModuleByStage = {
     ABStage.makebox: "felis.protocols.abfe.stage_makebox",
-    ABStage.boresch_em: "felis.protocols.abfe.stage_boresch",
-    ABStage.boresch_npt: "felis.protocols.abfe.stage_boresch",
-    ABStage.boresch_post_process: "felis.protocols.abfe.stage_boresch",
-    ABStage.sysA_em: "felis.protocols.abfe.stage_sysA",
-    ABStage.sysA: "felis.protocols.abfe.stage_sysA",
-    ABStage.sysB_em: "felis.protocols.abfe.stage_sysB",
-    ABStage.sysB: "felis.protocols.abfe.stage_sysB",
-    ABStage.mbar: "felis.protocols.abfe.stage_post_analysis",
-    ABStage.summarize: "felis.protocols.abfe.stage_post_analysis",
+    ABStage.boresch_em_v2: "felis.protocols.abfe_v2.stage_boresch",
+    ABStage.boresch_post_process_v2: "felis.protocols.abfe_v2.stage_boresch",
+    ABStage.boresch_npt_v2: "felis.protocols.abfe_v2.stage_boresch",
+    ABStage.sysA_em_v2: "felis.protocols.abfe_v2.stage_sysA",
+    ABStage.sysA_opt_lambdas_v2: "felis.protocols.abfe_v2.stage_sysA",
+    ABStage.sysA_v2: "felis.protocols.abfe_v2.stage_sysA",
+    ABStage.sysB_em_v2: "felis.protocols.abfe_v2.stage_sysB",
+    ABStage.sysB_opt_lambdas_v2: "felis.protocols.abfe_v2.stage_sysB",
+    ABStage.sysB_v2: "felis.protocols.abfe_v2.stage_sysB",
+    ABStage.post_analysis_v2: "felis.protocols.abfe_v2.stage_post_analysis",
 }
 
 
@@ -107,23 +110,46 @@ class ABFEInputConfig:
     outdir: str = None
     tmpdir: str = None
     stages: list[str] = None
-    elamrecipe: str = "e29"
-    vlamrecipe: str = "v45"
-    reslamrecipe: str = "r02"
-    supplementary_elec_lambda_list: list[float] = None  # elamrecipe = esuppl
-    supplementary_vdw_lambda_list: list[float] = None  # vlamrecipe = vsuppl
-    supplementary_restraint_lambda_list: list[float] = None  # reslamrecipe = rsuppl
+    wat_lam_json: str = None
+    pro_lam_json: str = None
     pro_ionic_strength: float = 0.0
-    eq_pose: int = 0  # not used; keep for backward compatibility
-    md_checkpoint_interval: int = None
-    md_sol_nsnapshots: int = None
-    md_pro_nsnapshots: int = None
-    md_nsnapshots: int = 2000
-    md_eq_nsnapshots: int = 600
+    md_checkpoint_interval: int = 125000
+    md_sol_nsnapshots: int = 10
+    md_pro_nsnapshots: int = 10
+    md_exchange_interval: int = 250
+    md_traj_interval: int = 125000
+    omm_tmp_directory: str = "/tmp"
+    md_boresch_nsnapshots: int = 300
+    md_boresch_traj_interval: int = 2500
+    md_integrator_dt_ps: float = 0.004
+    md_integrator_hmr: float = 1.5
     md_sol_em_version: int = MinimizeRelaxOption.heating.value
     md_pro_em_version: int = MinimizeRelaxOption.fire2.value
     k_r_a_dih: list[float] = None
     env_list: list[str] = None
+    boresch_sampling_protocol: str = "hremd_same_temperature"
+
+    # RelocationMC water enhanced sampling (protein leg / sysB only, requires abfe_version="v2").
+    rmc_enable: bool = False
+    rmc_exchange_frequency: int = 1000
+    rmc_num_candidate_sites: int = field(
+        default=16384,
+        metadata={
+            "help": (
+                "MTM proposal-pool size K passed directly as numCandidateSites; "
+                "the default is K=16384 (no 60x multiplier)"
+            )
+        },
+    )
+    rmc_sphere_radius_offset_nm: float = 0.3
+    rmc_sphere_radius_scale: float = 0.5
+    rmc_sphere_radius_nm: float = None
+    rmc_random_seed: int = 20260829
+    # Retained to parse existing configs; fixed MTM setup ignores both fields.
+    rmc_orientations_enabled: bool = True
+    rmc_use_cavity_bias: bool = True
+    rmc_exclude_alchemical_water: bool = True
+
 
     # e.g., "HDF5_USE_FILE_LOCKING": "FALSE"
     # https://github.com/choderalab/yank/issues/1256
@@ -133,6 +159,37 @@ class ABFEInputConfig:
             if f.name in d:
                 if d[f.name] is not None:
                     setattr(self, f.name, d[f.name])
+
+    def hmr_tkv(self) -> str:
+        if self.md_integrator_hmr is None:
+            return "f:integrator.hmr:"
+        return f"f:integrator.hmr:{self.md_integrator_hmr}"
+
+    def dt_tkv(self) -> str:
+        return f"f:integrator.dt_ps:{self.md_integrator_dt_ps}"
+
+    def relocation_mc_tkv(self) -> list[str]:
+        """Return tkv flags configuring RelocationMC for the protein leg (sysB).
+
+        Returns an empty list when RelocationMC is disabled so the sysA leg and
+        default runs are unaffected.
+        """
+        if not self.rmc_enable:
+            return []
+        flags = [
+            "i:relocation_mc.enable:1",
+            f"i:relocation_mc.exchange_frequency:{int(self.rmc_exchange_frequency)}",
+            f"i:relocation_mc.num_candidate_sites:{int(self.rmc_num_candidate_sites)}",
+            f"f:relocation_mc.sphere_radius_offset_nm:{float(self.rmc_sphere_radius_offset_nm)}",
+            f"f:relocation_mc.sphere_radius_scale:{float(self.rmc_sphere_radius_scale)}",
+            f"i:relocation_mc.random_seed:{int(self.rmc_random_seed)}",
+            f"i:relocation_mc.orientations_enabled:{int(bool(self.rmc_orientations_enabled))}",
+            f"i:relocation_mc.use_cavity_bias:{int(bool(self.rmc_use_cavity_bias))}",
+            f"i:relocation_mc.exclude_alchemical_water:{int(bool(self.rmc_exclude_alchemical_water))}",
+        ]
+        if self.rmc_sphere_radius_nm is not None:
+            flags.append(f"f:relocation_mc.sphere_radius_nm:{float(self.rmc_sphere_radius_nm)}")
+        return flags
 
     def check(self):
 
@@ -152,6 +209,8 @@ class ABFEInputConfig:
         assert len(self.cofsdfs) == len(self.cofitps)
         self.sdffile = _make_abs(self.sdffile)
         self.itpfile = _make_abs(self.itpfile)
+        self.wat_lam_json = _make_abs(self.wat_lam_json)
+        self.pro_lam_json = _make_abs(self.pro_lam_json)
         self.outdir = _make_abs(self.outdir)
         if self.outdir is None:
             user_home_dir = str(Path.home())
@@ -164,23 +223,32 @@ class ABFEInputConfig:
         else:
             user_home_dir = str(Path.home())
             self.tmpdir = tempfile.mkdtemp(dir=user_home_dir)
-        suppl_names = [
-            "supplementary_elec_lambda_list",
-            "supplementary_vdw_lambda_list",
-            "supplementary_restraint_lambda_list",
-        ]
-        for name in suppl_names:
-            l = getattr(self, name) or []
-            l = sorted(l)
-            if l and not (np.isclose(l[0], 0.0, atol=1.e-10) and np.isclose(l[-1], 1.0, atol=1.e-10)):
-                raise ValueError(f"{name} should start with 0.0 and end with 1.0")
-            if l:
-                l[0] = 0.0
-                l[-1] = 1.0
-            setattr(self, name, l)
-        self.md_checkpoint_interval = self.md_checkpoint_interval or GlobalKeys().openmm.checkpoint_interval
-        self.md_sol_nsnapshots = self.md_sol_nsnapshots or self.md_nsnapshots
-        self.md_pro_nsnapshots = self.md_pro_nsnapshots or self.md_nsnapshots
+        if self.md_checkpoint_interval is None:
+            self.md_checkpoint_interval = 125000
+        if self.md_exchange_interval <= 0:
+            raise ValueError("md_exchange_interval must be positive")
+        if self.md_traj_interval % self.md_exchange_interval != 0:
+            raise ValueError("md_traj_interval must be a multiple of md_exchange_interval")
+        if self.md_checkpoint_interval % self.md_exchange_interval != 0:
+            raise ValueError("md_checkpoint_interval must be a multiple of md_exchange_interval")
+        if self.md_checkpoint_interval < self.md_traj_interval:
+            raise ValueError("md_checkpoint_interval must be >= md_traj_interval")
+        if self.boresch_sampling_protocol not in ABFE_V2_BORESCH_SAMPLING_PROTOCOLS:
+            raise ValueError(
+                "boresch_sampling_protocol must be one of "
+                f"{ABFE_V2_BORESCH_SAMPLING_PROTOCOLS}; got {self.boresch_sampling_protocol}"
+            )
+        if self.md_boresch_traj_interval <= 0:
+            raise ValueError("md_boresch_traj_interval must be positive")
+        if self.boresch_sampling_protocol == "hremd_same_temperature":
+            if self.md_boresch_traj_interval % self.md_exchange_interval != 0:
+                raise ValueError(
+                    "md_boresch_traj_interval must be a multiple of md_exchange_interval"
+                )
+            if self.md_checkpoint_interval < self.md_boresch_traj_interval:
+                raise ValueError(
+                    "md_checkpoint_interval must be >= md_boresch_traj_interval"
+                )
         self.md_sol_em_version = MinimizeRelaxOption(self.md_sol_em_version).value
         self.md_pro_em_version = MinimizeRelaxOption(self.md_pro_em_version).value
         if self.k_r_a_dih is None:
@@ -207,7 +275,7 @@ class ABFEInputConfig:
     @classmethod
     def get_list_of_field_type_default_help_tuples(cls) -> list:
         for f in fields(cls):
-            h = f.name
+            h = f.metadata.get("help", f.name)
             typ = f.type
             if f.name in ("md_pro_em_version", "md_sol_em_version"):
                 typ = _int_or_str

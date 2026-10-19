@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: CC-BY-NC-4.0
 
 import os
 from pathlib import Path
@@ -20,19 +20,9 @@ def pytest_configure(config):
 
     from felis.tests.testkit.bytemol.shims import install_shims_bytemol
     from felis.tests.testkit.openmm.shims import install_shims_openmm
-    from felis.tests.testkit.openmmtools.shims import install_shims_openmmtools
 
     install_shims_openmm()
-    install_shims_openmmtools()
     install_shims_bytemol()
-
-    import felis.utils
-    from felis.tests.testkit.mock import mock_extract_state_from_netdcd, mock_get_visible_cuda_devices
-    ndev = 8  # Default number of mock devices
-    felis.utils.get_visible_cuda_devices = mock_get_visible_cuda_devices(ndev)
-
-    import felis.utils.omm.format_tools
-    felis.utils.omm.format_tools.extract_state_from_netdcd = mock_extract_state_from_netdcd
 
 
 def pytest_collection_modifyitems(config, items):
@@ -65,6 +55,3 @@ def _patch_sys_modules_for_artifacts(monkeypatch):
     if existing_pythonpath:
         pythonpath_entries.append(existing_pythonpath)
     monkeypatch.setenv("PYTHONPATH", os.pathsep.join(pythonpath_entries))
-    monkeypatch.setenv("OMPI_MCA_pml", "ob1")
-    monkeypatch.setenv("OMPI_MCA_btl", "self,vader")
-    monkeypatch.setenv("OMPI_MCA_hwloc_base_binding_policy", "none")

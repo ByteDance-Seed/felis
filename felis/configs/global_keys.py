@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: CC-BY-NC-4.0
 
 """Global configuration keys for FELIS workflows.
 
@@ -13,7 +13,7 @@ Dataclasses:
     GKPosres: Position restraint configuration.
     GKBoresch: Boresch restraint configuration.
     GKAB: Absolute free energy settings.
-    GKOpenMM: OpenMM and openmmtools configuration.
+    GKOpenMM: OpenMM configuration.
     GlobalKeys: Aggregates all configuration sections.
 """
 
@@ -111,6 +111,7 @@ class GKIntegrator:
         npt: NPT ensemble flag (0=NVT, 1=NPT). Default is 0.
         npt_mc_freq: Monte Carlo barostat frequency. Default is 25.
         randomseed: Random seed for reproducibility. Default is randomly generated.
+        hmr: Hydrogen mass repartitioning target hydrogen mass in amu. Default is None.
     """
 
     name: str = "LangevinMiddleIntegrator"
@@ -125,6 +126,7 @@ class GKIntegrator:
     npt: int = 0
     npt_mc_freq: int = 25
     randomseed: int = field(default_factory=lambda: random.randint(0, 2147483647))
+    hmr: float = None
 
     def __post_init__(self):
         self.name = IntegratorNameOption(self.name).value
@@ -195,41 +197,164 @@ class GKAB:
     ligatoms: list = None  # set None to disable
     vlam: float = 1.0
     elam: float = 1.0
+    lambdaA_charge: float = 1.0 # Equilivalent to elam for ligand charge interpolation in ABFE.
+    lambdaB_charge: float = 0.0 # Used for alchemical water charge interpolation in ABFE.
+    lambdaC_charge: float = 0.0 # Used for RBFE charge interpolation
+
+    lambdaA_vdw: float = 1.0 # Equilivalent to vlam for ligand vdw interpolation in ABFE.
+    lambdaB_vdw: float = 0.0 #
+    
+    torsionLambda: float = 1.0 # Lambda for ligand torsion interpolation in ABFE.
     reslam: float = 0.0
 
     lam_list: list = None
     ilam: int = 0
 
+    lambda_schedules: dict = field(
+        default_factory=lambda: {
+            "lambdaA_charge": [],
+            "lambdaB_charge": [],
+            "lambdaC_charge": [],
+            "lambdaA_vdw": [],
+            "lambdaB_vdw": [],
+            "torsionLambda": [],
+            "reslam": [],
+            "rest2_scale": [],
+        }
+    )
+
     def __post_init__(self):
         if self.lam_list is not None:
-            entry = self.lam_list[self.ilam]
-            if len(entry) == 2:
-                self.vlam, self.elam = entry
-            elif len(entry) == 3:
-                self.vlam, self.elam, self.reslam = entry
+            if self.lam_list and len(self.lam_list[0]) == 7:
+                # Build the full REST2 lambda schedule across all windows so
+                # that downstream code (e.g. HREMD replica setup) can index
+                # any replica_id, not just the current ilam.
+                for entry in self.lam_list:
+                    if len(entry) != 7:
+                        raise ValueError(
+                            f"lam_list entry length mismatch: expect 7, got {len(entry)}: {entry}"
+                        )
+                    (
+                        lambdaA_charge,
+                        lambdaB_charge,
+                        lambdaC_charge,
+                        lambdaA_vdw,
+                        lambdaB_vdw,
+                        torsionLambda,
+                        reslam,
+                    ) = entry
+                    self.lambda_schedules["lambdaA_charge"].append(lambdaA_charge)
+                    self.lambda_schedules["lambdaB_charge"].append(lambdaB_charge)
+                    self.lambda_schedules["lambdaC_charge"].append(lambdaC_charge)
+                    self.lambda_schedules["lambdaA_vdw"].append(lambdaA_vdw)
+                    self.lambda_schedules["lambdaB_vdw"].append(lambdaB_vdw)
+                    self.lambda_schedules["torsionLambda"].append(torsionLambda)
+                    self.lambda_schedules["reslam"].append(reslam)
+                    self.lambda_schedules["rest2_scale"].append(1.0)
+                # Set the current window fields based on ilam.
+                (
+                    self.lambdaA_charge,
+                    self.lambdaB_charge,
+                    self.lambdaC_charge,
+                    self.lambdaA_vdw,
+                    self.lambdaB_vdw,
+                    self.torsionLambda,
+                    self.reslam,
+                ) = self.lam_list[self.ilam]
+            else:
+                entry = self.lam_list[self.ilam]
+                if len(entry) == 2:
+                    self.vlam, self.elam = entry
+                elif len(entry) == 3:
+                    self.vlam, self.elam, self.reslam = entry
 
 
 @dataclass
 class GKOpenMM:
-    """OpenMM and openmmtools configuration.
+    """OpenMM configuration.
 
     Attributes:
         platform: Computation platform ("CUDA", "CPU", or "Reference"). Default is "CUDA".
         precision: Numerical precision for CUDA platform ("mixed" or "double"). Default is "mixed".
         params_ecosystem: Parameter file format (currently only "gromacs"). Default is "gromacs".
         checkpoint_interval: Steps between checkpoint writes. Default is 50.
+        resume: Resume HREMD from saved checkpoints when present. Default is True.
     """
 
     platform: str = "CUDA"
     precision: str = "mixed"
     params_ecosystem: str = "gromacs"
-    checkpoint_interval: int = 50
+    checkpoint_interval: int = 125000
+    exchange_interval: int = 250
+    tmp_directory: str = "/tmp"
+    resume: bool = True
 
     def __post_init__(self):
         assert self.platform in ("CUDA", "CPU", "Reference")
         if self.platform == "CUDA":
             assert self.precision in ("mixed", "double")
         assert self.params_ecosystem in ("gromacs",)
+
+
+@dataclass
+class GKRelocationMC:
+    """Water enhanced sampling (RelocationMC) configuration.
+
+    RelocationMC is a force-free OpenMM Monte Carlo protocol that relocates
+    complete rigid water molecules between a ligand-centred spherical region and
+    bulk solvent. It only changes coordinates; particle count and force-field
+    parameters are unchanged. In FELIS it is supported on the protein leg
+    (sysB) together with the PerturbNonbondedForce.
+
+    Attributes:
+        enable: Master switch. Default is False (off).
+        exchange_frequency: Number of MD integration steps between automatic
+            relocation attempts. Default is 1000.
+        num_candidate_sites: MTM proposal-pool size K passed directly to the
+            plugin as numCandidateSites. The default is K=16384; it is not
+            multiplied by the legacy 60-orientation expansion.
+        sphere_radius_offset_nm: Additive offset (nm) added to the ligand
+            heavy-atom radius when deriving the inner sphere radius.
+            Default is 0.3 nm.
+        sphere_radius_scale: Multiplier applied to the maximum pairwise
+            distance among ligand heavy atoms before adding the offset.
+            Default is 0.5 (radius based on the ligand heavy-atom "diameter").
+        sphere_radius_nm: Optional explicit sphere radius in nm. When set
+            (not None), it overrides the derived radius. Default is None.
+        temperature_K: RelocationMC Metropolis temperature in kelvin. When
+            None, the integrator target temperature is used. Default is None.
+        random_seed: Random seed for the Monte Carlo sampler. Default is 20260829.
+        orientations_enabled: Legacy compatibility field. MTM always enables
+            orientations, regardless of this value.
+        use_cavity_bias: Legacy compatibility field. MTM always disables the
+            cavity/proposal volume bias, regardless of this value.
+        exclude_alchemical_water: When the ligand is charged, exclude the
+            alchemical (charge-compensating) waters from the labile set.
+            Default is True.
+    """
+
+    enable: bool = False
+    exchange_frequency: int = 1000
+    num_candidate_sites: int = 16384
+    sphere_radius_offset_nm: float = 0.3
+    sphere_radius_scale: float = 0.5
+    sphere_radius_nm: float = None
+    temperature_K: float = None
+    random_seed: int = 20260829
+    orientations_enabled: bool = True
+    use_cavity_bias: bool = True
+    exclude_alchemical_water: bool = True
+    verbose_log: str = None
+
+    def __post_init__(self):
+        if not self.enable:
+            return
+        assert self.exchange_frequency > 0, "relocation_mc.exchange_frequency must be positive"
+        assert self.num_candidate_sites > 0, "relocation_mc.num_candidate_sites must be positive"
+        assert self.sphere_radius_offset_nm >= 0.0, "relocation_mc.sphere_radius_offset_nm must be >= 0"
+        assert self.sphere_radius_scale > 0.0, "relocation_mc.sphere_radius_scale must be > 0"
+        if self.sphere_radius_nm is not None:
+            assert self.sphere_radius_nm > 0.0, "relocation_mc.sphere_radius_nm must be positive"
 
 
 def _update_by_dict(cls: Type[Any], obj: Any, data: dict) -> None:
@@ -270,6 +395,7 @@ class GlobalKeys:
         boresch: Boresch restraints configuration (GKBoresch).
         ab: Alchemical binding settings (GKAB).
         openmm: OpenMM platform configuration (GKOpenMM).
+        relocation_mc: RelocationMC water enhanced sampling settings (GKRelocationMC).
     """
 
     dir: GKDir = field(default_factory=lambda: GKDir())
@@ -279,6 +405,7 @@ class GlobalKeys:
     boresch: GKBoresch = field(default_factory=lambda: GKBoresch())
     ab: GKAB = field(default_factory=lambda: GKAB())
     openmm: GKOpenMM = field(default_factory=lambda: GKOpenMM())
+    relocation_mc: GKRelocationMC = field(default_factory=lambda: GKRelocationMC())
 
     def __str__(self) -> str:
         s = ""

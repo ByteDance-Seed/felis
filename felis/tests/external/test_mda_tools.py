@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: CC-BY-NC-4.0
 
 import numpy as np
 import pytest
@@ -72,3 +72,79 @@ def test_get_trj_nsnapshots_returns_len_of_trajectory(monkeypatch: pytest.Monkey
 
     gk = _DummyGK(ecosystem="gromacs", sys_top="a.top")
     assert mt.get_trj_nsnapshots(gk, trj="a.xtc") == 7
+
+
+def test_discard_initial_trajectory_frames_rewrites_remaining_frames(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    written_frames = []
+
+    class DummyAtoms:
+
+        n_atoms = 3
+
+        def __init__(self):
+            self.current_frame = None
+
+    class DummyTrajectory:
+
+        def __init__(self, atoms):
+            self._atoms = atoms
+            self._frames = list(range(5))
+
+        def __len__(self):
+            return len(self._frames)
+
+        def __iter__(self):
+            for frame_id in self._frames:
+                self._atoms.current_frame = frame_id
+                yield object()
+
+    class DummyUniverse:
+
+        def __init__(self):
+            self.atoms = DummyAtoms()
+            self.trajectory = DummyTrajectory(self.atoms)
+
+    class DummyWriter:
+
+        def __init__(self, path, n_atoms):
+            self.path = path
+            self.n_atoms = n_atoms
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def write(self, atoms):
+            written_frames.append((self.path, self.n_atoms, atoms.current_frame))
+
+    monkeypatch.setattr(mt, "get_mda_universe", lambda _gk, _trj: DummyUniverse())
+    monkeypatch.setattr(mt, "Writer", DummyWriter)
+    monkeypatch.setattr(mt.os, "replace", lambda src, dst: written_frames.append(("replace", src, dst)))
+
+    trj = tmp_path / "traj.dcd"
+    gk = _DummyGK(ecosystem="gromacs", sys_top="a.top")
+    mt.discard_initial_trajectory_frames(gk, str(trj), 2)
+
+    tmp_trj = str(tmp_path / "traj.discard.tmp.dcd")
+    assert written_frames == [
+        (tmp_trj, 3, 2),
+        (tmp_trj, 3, 3),
+        (tmp_trj, 3, 4),
+        ("replace", tmp_path / "traj.discard.tmp.dcd", trj),
+    ]
+
+
+def test_discard_initial_trajectory_frames_rejects_empty_result(monkeypatch: pytest.MonkeyPatch, tmp_path):
+
+    class DummyUniverse:
+
+        atoms = object()
+        trajectory = [object(), object()]
+
+    monkeypatch.setattr(mt, "get_mda_universe", lambda _gk, _trj: DummyUniverse())
+
+    gk = _DummyGK(ecosystem="gromacs", sys_top="a.top")
+    with pytest.raises(ValueError, match="Cannot discard 2 frames"):
+        mt.discard_initial_trajectory_frames(gk, str(tmp_path / "traj.dcd"), 2)

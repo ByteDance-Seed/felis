@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: CC-BY-NC-4.0
 
 def test_find_ideal_geometry_rounding_rules():
     from felis.protocols.boresch.find_ideal_geometry import find_ideal_geometry

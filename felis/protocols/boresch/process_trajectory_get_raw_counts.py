@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: CC-BY-NC-4.0
 
 from MDAnalysis.lib.distances import calc_angles
 from MDAnalysis.lib.distances import calc_bonds

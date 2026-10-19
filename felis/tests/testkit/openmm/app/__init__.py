@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: CC-BY-NC-4.0
 
 import sys
 from pathlib import Path
@@ -76,8 +76,9 @@ class DCDReporter:
 
 class DCDFile:
 
-    def __init__(self, file_handle, _topology=None, _dt=None):
+    def __init__(self, file_handle, _topology=None, _dt=None, append=False):
         self._fh = file_handle
+        self._append = append
 
     def writeModel(self, **_kwargs):
         try:

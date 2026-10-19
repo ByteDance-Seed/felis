@@ -1,13 +1,16 @@
 # Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: CC-BY-NC-4.0
 
 import logging
 import math
+import os
 from pathlib import Path
+import re
 from typing import Optional
 
 from openmm import BrownianIntegrator
 from openmm import CMMotionRemover
+from openmm import CustomTorsionForce
 from openmm import CustomBondForce
 from openmm import CustomCompoundBondForce
 from openmm import CustomExternalForce
@@ -20,6 +23,7 @@ from openmm import NonbondedForce
 from openmm import PeriodicTorsionForce
 from openmm import Platform
 from openmm import System
+from openmm import Vec3
 from openmm.app import GromacsGroFile
 from openmm.app import GromacsTopFile
 from openmm.app import PDBFile
@@ -37,6 +41,80 @@ from felis.configs import MinimizeRelaxOption
 from felis.utils.omm.fire2_minimizer import FIRE2Integrator
 
 logger = logging.getLogger(__name__)
+
+
+def _patch_openmm_gromacstopfile_hmr_water_resnames() -> None:
+    """Patch OpenMM GromacsTopFile.createSystem in-memory for Gromacs water names.
+
+    OpenMM's hydrogenMass handling skips rigid water by checking for residue
+    name ``HOH``. FELIS Gromacs topologies can label water as ``SOL`` or
+    ``CRW`` instead, so extend that check when HMR is enabled.
+    """
+
+    try:
+        import openmm.app.gromacstopfile as gtf
+    except Exception:
+        return
+
+    create_system = gtf.GromacsTopFile.createSystem
+    if getattr(create_system, "_apply_hmr_water_resname_patch", False):
+        return
+
+    import inspect
+
+    try:
+        src = inspect.getsource(create_system)
+    except Exception as exc:
+        raise ImportError("Failed to inspect OpenMM GromacsTopFile.createSystem") from exc
+
+    # ``inspect.getsource()`` returns a class method with the method itself
+    # indented but its body indented one level further.  ``textwrap.dedent``
+    # alone cannot remove that leading method indentation, so remove the
+    # indentation of the ``def`` line explicitly before executing the method
+    # at module scope.
+    method_indent = len(src) - len(src.lstrip())
+    canon = "".join(
+        line[method_indent:] if line.strip() else line
+        for line in src.replace("\r\n", "\n").splitlines(True)
+    )
+    lines = canon.splitlines(True)
+    rigid_water_lines = [line for line in lines if "rigidWater" in line and "residue.name" in line and "HOH" in line]
+    if rigid_water_lines and all("SOL" in line and "CRW" in line for line in rigid_water_lines):
+        setattr(gtf.GromacsTopFile.createSystem, "_apply_hmr_water_resname_patch", True)
+        return
+
+    hoh_pattern = re.compile(r"residue\.name\s*==\s*(['\"])HOH\1")
+    replacements = 0
+    updated_lines = []
+    for line in lines:
+        if "rigidWater" in line and "residue.name" in line and "HOH" in line:
+            line, nrep = hoh_pattern.subn("residue.name in ('HOH', 'SOL', 'CRW')", line)
+            replacements += nrep
+        updated_lines.append(line)
+
+    if replacements == 0:
+        srcfile = inspect.getsourcefile(create_system)
+        srcfile_msg = f" from {srcfile}" if srcfile else ""
+        raise ImportError(
+            "Cannot apply HMR water resname patch: no rigidWater HOH residue-name checks "
+            f"were found in OpenMM GromacsTopFile.createSystem{srcfile_msg}"
+        )
+    patched_lines = []
+    for line in updated_lines:
+        if line.lstrip().startswith("def createSystem("):
+            patched_lines.append(line.replace("def createSystem", "def createSystem_hmr_water_resname_patch", 1))
+        else:
+            patched_lines.append(line)
+    patched_src = "".join(patched_lines)
+
+    exec(patched_src, gtf.__dict__)  # pylint: disable=exec-used
+    patched_func = gtf.__dict__.get("createSystem_hmr_water_resname_patch")
+    if patched_func is None or not callable(patched_func):
+        raise ImportError("Failed to load patched createSystem_hmr_water_resname_patch from exec globals")
+    gtf.GromacsTopFile.createSystem = patched_func
+    setattr(patched_func, "_apply_hmr_water_resname_patch", True)
+    logger.info("Patched OpenMM GromacsTopFile.createSystem for HMR water residue names; updated %d rigidWater HOH checks", replacements)
+
 
 #######################
 # initial information #
@@ -126,15 +204,15 @@ def _add_position_restraints(osys: System, gk: GlobalKeys):
 ###########################
 
 
-def _make_boresch_restraints(lig3, pro3, kr_kcal, kangle_kcal, kdih_kcal, r0, theta0, phi0, alpha0, beta0,
+def _make_boresch_restraints(lig3, pro3, reslam, kr_kcal, kangle_kcal, kdih_kcal, r0, theta0, phi0, alpha0, beta0,
                              gamma0) -> CustomCompoundBondForce:
     radian = 180 / math.pi
     kr = kr_kcal * (unit.kilocalories_per_mole / unit.angstrom**2) / (unit.kilojoules_per_mole / unit.nanometer**2)
     ka = kangle_kcal * (unit.kilocalories_per_mole / unit.radian**2) / (unit.kilojoules_per_mole / unit.radian**2)
     kd = kdih_kcal * unit.kilocalories_per_mole / unit.kilojoules_per_mole
 
-    e_translate = "0.5*kr*(r-r0)^2 + 0.5*ka*(theta-theta0)^2 + kd*(1-cos(phi-phi0)) + "
-    e_rotate = "0.5*ka*(alpha-alpha0)^2 + kd*(1-cos(beta-beta0)) + kd*(1-cos(gamma-gamma0));"
+    e_translate = "0.5*kr * reslam *(r-r0)^2 + 0.5*ka * reslam *(theta-theta0)^2 + kd * reslam *(1-cos(phi-phi0)) + "
+    e_rotate = "0.5*ka * reslam *(alpha-alpha0)^2 + kd * reslam *(1-cos(beta-beta0)) + kd * reslam *(1-cos(gamma-gamma0));"
     # p1/2/3, p4/5/6 = Lig1/2/3, Pro1/2/3
     # r = L1,P1, theta=L1,P1,P2, phi=L1,P1,P2,P3
     #     p1,p4        p1,p4,p5      p1,p4,p5,p6
@@ -154,6 +232,8 @@ def _make_boresch_restraints(lig3, pro3, kr_kcal, kangle_kcal, kdih_kcal, r0, th
     boresch.addPerBondParameter("alpha0")
     boresch.addPerBondParameter("beta0")
     boresch.addPerBondParameter("gamma0")
+    boresch.addGlobalParameter("reslam", reslam)
+    logger.info(f"Lambda for restraints {reslam}")
     boresch.addBond([lig3[0], lig3[1], lig3[2], pro3[0], pro3[1], pro3[2]],
                     [kr, ka, kd, r0, theta0 / radian, phi0 / radian, alpha0 / radian, beta0 / radian, gamma0 / radian])
     return boresch
@@ -165,14 +245,9 @@ def _add_boresch_restraints(osys: System, gk: GlobalKeys):
     if boresch_ligatoms is None and boresch_proatoms is None:
         return
     k_kcal = gk.boresch.k_r_a_dih_kcal
-    if gk.ab.ligatoms is not None:
-        k_kcal[0] *= gk.ab.reslam
-        k_kcal[1] *= gk.ab.reslam
-        k_kcal[2] *= gk.ab.reslam
-        logger.info(f"Lambda for restraints {gk.ab.reslam}")
     boresch_r_theta_phi = gk.boresch.r_theta_phi
     boresch_alpha_beta_gamma = gk.boresch.alpha_beta_gamma
-    resforce = _make_boresch_restraints(boresch_ligatoms, boresch_proatoms, *k_kcal, *boresch_r_theta_phi,
+    resforce = _make_boresch_restraints(boresch_ligatoms, boresch_proatoms, gk.ab.reslam, *k_kcal, *boresch_r_theta_phi,
                                         *boresch_alpha_beta_gamma)
     osys.addForce(resforce)
     logger.info(
@@ -222,6 +297,54 @@ def _modify_torsion_force_by_vlambda(osys: System, gk: GlobalKeys):
     if not tors_changed:
         logger.info(f"Torsion vlam {vlam} not changed")
 
+
+def _add_alchem_torsion_force(osys: System, gk: GlobalKeys):
+    torsforce: PeriodicTorsionForce = get_force_from_system_by_name(osys, "PeriodicTorsionForce")
+    energy_expression = "torsionLambda * k * (1 + cos(n * theta - phase));"
+    alchem_torsion_force = CustomTorsionForce(energy_expression)
+    alchem_torsion_force.addGlobalParameter("torsionLambda", 1.0)
+    alchem_torsion_force.addPerTorsionParameter("k")
+    alchem_torsion_force.addPerTorsionParameter("n")
+    alchem_torsion_force.addPerTorsionParameter("phase")
+
+    if torsforce is None:
+        return
+    tors_changed = False
+    ntors = torsforce.getNumTorsions()
+    if gk.ab.ligatoms:
+        n_previous_atoms = gk.ab.ligatoms[0]
+        mol = Molecule(gk.filename.monomer)
+        mg = MoleculeGraph(mol)
+        linear_propers = mg.get_linear_propers()
+        linear_set = set()
+        for tf in linear_propers:
+            p1, p2, p3, p4 = tf
+            p2, p3 = p2 + n_previous_atoms, p3 + n_previous_atoms
+            linear_set.add((p2, p3))
+            linear_set.add((p3, p2))
+        tfp = mg.get_tfd_propers()  # torsion finger print 0-based index
+        # tfp = mg.get_rotatable_propers()
+        p2p3_set = set()
+        for tf in tfp:
+            p1, p2, p3, p4 = tf
+            p2, p3 = p2 + n_previous_atoms, p3 + n_previous_atoms
+            p2p3_set.add((p2, p3))
+            p2p3_set.add((p3, p2))
+        for idx in range(ntors):
+            p1, p2, p3, p4, nperiod, phase, k = torsforce.getTorsionParameters(idx)
+            if ((p2, p3) in p2p3_set and (p2, p3) not in linear_set) or ((p3, p2) in p2p3_set and
+                                                                         (p3, p2) not in linear_set):
+                # Disable the original torsion term by setting k to 0,
+                # and add the same torsion to alchem_torsion_force with lambda scaling.
+                torsforce.setTorsionParameters(idx, p1, p2, p3, p4, nperiod, phase, 0.0)
+                alchem_torsion_force.addTorsion(p1, p2, p3, p4, [k, nperiod, phase])
+
+                tors_changed = True
+    if not tors_changed:
+        logger.info(f"Torsion scale was not applied")
+    else:
+        logger.info(f"Torsion lambda schedule added with energy expression {energy_expression}")
+        osys.addForce(alchem_torsion_force)
 
 def _decouple_alchemical_group(natoms: int, nbforce: NonbondedForce, custom_nbforce: CustomNonbondedForce,
                                lj14: CustomBondForce, alchem_atoms, vlambda, elambda):
@@ -383,6 +506,455 @@ def _add_alchemical_nonbonded_force(osys: System, gk: GlobalKeys):
         osys.addForce(lig_lj14)
     logger.info(f"ab_vlam {vlam} ab_elam {elam} ab_ligatoms {ab_ligatoms}")
 
+def _add_perturb_nonbonded_force(osys: System, gk: GlobalKeys, customLambdaSchedules: dict = None, softcore_alpha: float = 0.5):
+    ab_ligatoms = gk.ab.ligatoms
+    if ab_ligatoms is None:
+        logger.info("No ligand atoms found, perturb_nonbonded_force not added.")
+        return
+    nbforce = get_force_from_system_by_name(osys, "NonbondedForce")
+    natoms = osys.getNumParticles()
+    _add_alchem_torsion_force(osys, gk)
+
+    if customLambdaSchedules is not None:
+        logger.info("use customLambdaSchedules to perturb nonbonded force.")
+        logger.info(f"customLambdaSchedules: {customLambdaSchedules}")
+        perturb_nb_force, coulomb_14_force, lj_14_force = _make_perturb_nonbonded_force(
+                                                    nbforce,
+                                                    natoms,
+                                                    ab_ligatoms,
+                                                    customLambdaSchedules,
+                                                    gk.ab.ilam,
+                                                    softcore_alpha,
+                                                    gk.filename.getListOfOHH())
+    elif len(gk.ab.lambda_schedules["lambdaA_charge"]) > 0:
+        perturb_nb_force, coulomb_14_force, lj_14_force = _make_perturb_nonbonded_force(
+                                                    nbforce,
+                                                    natoms,
+                                                    ab_ligatoms,
+                                                    gk.ab.lambda_schedules,
+                                                    gk.ab.ilam,
+                                                    softcore_alpha,
+                                                    gk.filename.getListOfOHH())
+    # TODO: add support when lambda schedules are not available, for perturb nonbonded force.
+    else:
+        raise RuntimeError("No lambda schedule found in gk.ab.lambda_schedules.")
+
+    if perturb_nb_force is not None:
+        logger.info("add PerturbNonbondedForce and CustomBondForce for 1-4 interactions")
+        osys.addForce(perturb_nb_force)
+        osys.addForce(coulomb_14_force)
+        osys.addForce(lj_14_force)
+
+        for ii, force in enumerate(osys.getForces()):
+            if isinstance(force, NonbondedForce):
+                # Remove the original NonbondedForce since its interactions will be handled
+                # by the PerturbNonbondedForce and the 1-4 CustomBondForces.
+                osys.removeForce(ii)
+                break
+    else:
+        raise RuntimeError("PerturbNonbondedForce is not added to the system.")
+
+
+def _make_perturb_nonbonded_force(
+    nbforce: NonbondedForce,
+    natoms: int,
+    alchem_atoms: list[int],
+    lambda_schedules: dict,
+    lambda_index: int,
+    softcore_alpha: float = 1.0,
+    OHH_list = None,
+    enable_alchem_water: bool = True):
+    from PerturbNonbondedPlugin import PerturbNonbondedForce
+    alchem_total_qold, alchem_total_qnew, alchem_total_qeps = 0.0, 0.0, 1.e-6
+
+    logger.info(f"Initialize perturb nonbonded force with lambda_index {lambda_index}")
+
+    elamA_list = lambda_schedules["lambdaA_charge"]
+    elamB_list = lambda_schedules["lambdaB_charge"]
+    elamC_list = lambda_schedules["lambdaC_charge"]
+    rest2_list = lambda_schedules["rest2_scale"]
+    vlamA_list = lambda_schedules["lambdaA_vdw"]
+    vlamB_list = lambda_schedules["lambdaB_vdw"]
+
+    alchem_water_chargeB = dict() # key: atom index, value: charge for state B. Used for perturbing alchemical water charges.
+
+    perturb_nonbonded_force = PerturbNonbondedForce()
+
+    lig_total_charge = 0.0
+    for idx in alchem_atoms:
+        charge, sigma, epsilon = nbforce.getParticleParameters(idx)
+        lig_total_charge += charge.value_in_unit(unit.elementary_charge)
+
+    # At state B the ligand charge is zero. Shift selected waters by the
+    # ligand charge so the static counterions from makebox remain compensated.
+    alchem_q_needed = 0.0
+    if enable_alchem_water and abs(lig_total_charge) > alchem_total_qeps:
+        elamA_last = elamA_list[-1]
+        alchem_q_needed = lig_total_charge * (1 - elamA_last)
+
+    if abs(alchem_q_needed) > alchem_total_qeps:
+        nalchemwater = get_num_alchemwat(alchem_q_needed)
+        logger.info(f"AlchemWater: need {nalchemwater} water molecules for compensate {alchem_q_needed} charge")
+        nwater = len(OHH_list)
+        if nalchemwater > nwater:
+            raise RuntimeError(f"AlchemWater: need at least {nalchemwater} water molecules; found {nwater}")
+        alchem_q_mod = alchem_q_needed / nalchemwater
+        if alchem_q_mod < 0:
+            alchem_q_mod = alchem_q_mod / 2
+        selected_OHH = OHH_list[-nalchemwater:]
+        for iwat in selected_OHH:
+            atom_O, atomH1, atomH2 = iwat
+            q_O, sig_O, eps_O = nbforce.getParticleParameters(atom_O)
+            qH1, sigH1, epsH1 = nbforce.getParticleParameters(atomH1)
+            qH2, sigH2, epsH2 = nbforce.getParticleParameters(atomH2)
+            q_O = q_O.value_in_unit(unit.elementary_charge)
+            qH1 = qH1.value_in_unit(unit.elementary_charge)
+            qH2 = qH2.value_in_unit(unit.elementary_charge)
+
+            if alchem_q_mod > 0:
+                # make O less negative
+                alchem_water_chargeB[atom_O] = q_O + alchem_q_mod
+                alchem_water_chargeB[atomH1] = qH1
+                alchem_water_chargeB[atomH2] = qH2
+                logger.info(f"AlchemWater atom {atom_O, atomH1, atomH2} chargeA: {q_O} {qH1} {qH2}")
+                logger.info(f"AlchemWater atom {atom_O, atomH1, atomH2} chargeB: {q_O + alchem_q_mod} {qH1} {qH2}")
+            elif alchem_q_mod < 0:
+                # make H less positive
+                alchem_water_chargeB[atom_O] = q_O
+                alchem_water_chargeB[atomH1] = qH1 + alchem_q_mod
+                alchem_water_chargeB[atomH2] = qH2 + alchem_q_mod
+                logger.info(f"AlchemWater atom {atom_O, atomH1, atomH2} chargeA: {q_O} {qH1} {qH2}")
+                logger.info(f"AlchemWater atom {atom_O, atomH1, atomH2} chargeB: {q_O} {qH1 + alchem_q_mod} {qH2 + alchem_q_mod}")
+
+
+    for ii in range(natoms):
+        charge, sigma, epsilon = nbforce.getParticleParameters(ii)
+        if ii in alchem_atoms:
+            chargeA = charge
+            chargeB = 0
+            sigmaA = sigma
+            sigmaB = sigma
+            epsilonA = epsilon
+            epsilonB = 0
+            isDummy = True
+            isREST2 = False
+
+            perturb_nonbonded_force.addParticle(chargeA, sigmaA, epsilonA, chargeB, sigmaB, epsilonB, isDummy, isREST2)
+        elif enable_alchem_water and ii in alchem_water_chargeB.keys():
+            logger.info(f"AlchemWater atom {ii} new chargeB {alchem_water_chargeB[ii]}")
+            chargeA = charge
+            chargeB = alchem_water_chargeB[ii] * unit.elementary_charge
+            sigmaA = sigma
+            sigmaB = sigma
+            epsilonA = epsilon
+            epsilonB = epsilon
+            isDummy = False
+            isREST2 = False
+
+            perturb_nonbonded_force.addParticle(chargeA, sigmaA, epsilonA, chargeB, sigmaB, epsilonB, isDummy, isREST2)
+        else:
+            chargeA = charge
+            chargeB = charge
+            sigmaA = sigma
+            sigmaB = sigma
+            epsilonA = epsilon
+            epsilonB = epsilon
+            isDummy = False
+            isREST2 = False
+
+            perturb_nonbonded_force.addParticle(chargeA, sigmaA, epsilonA, chargeB, sigmaB, epsilonB, isDummy, isREST2)
+
+    perturb_nonbonded_force.setSoftcoreAlpha(1.0)
+    perturb_nonbonded_force.setNonbondedMethod(PerturbNonbondedForce.PME)
+    perturb_nonbonded_force.setCutoffDistance(nbforce.getCutoffDistance())
+    perturb_nonbonded_force.enableEnergyConstantCache(True)
+    perturb_nonbonded_force.setLambdaSchedules(
+        elamA_list,
+        elamB_list,
+        elamC_list,
+        vlamA_list,
+        vlamB_list,
+        rest2_list
+    )
+    perturb_nonbonded_force.addGlobalParameter("replica_id", lambda_index)
+
+    coulomb_14_force = CustomBondForce("step(cutoff-r)*Eq;Eq=ONE_4PI_EPS0*chargeprod/r;")
+    coulomb_14_force.addPerBondParameter("chargeprod")
+    coulomb_14_force.addGlobalParameter("ONE_4PI_EPS0", 138.93545764438198)  # in OpenMM unit system: kJ/mol*nm/e^2
+    coulomb_14_force.addGlobalParameter("cutoff", nbforce.getCutoffDistance().value_in_unit(unit.nanometer))
+    coulomb_14_force.setUsesPeriodicBoundaryConditions(nbforce.usesPeriodicBoundaryConditions())
+
+    lj_14_force = CustomBondForce("step(cutoff-r)*Eq;Eq=4*epsilon*((sigma/r)^12-(sigma/r)^6);")
+    lj_14_force.addPerBondParameter("sigma")
+    lj_14_force.addPerBondParameter("epsilon")
+    lj_14_force.addGlobalParameter("cutoff", nbforce.getCutoffDistance().value_in_unit(unit.nanometer))
+    lj_14_force.setUsesPeriodicBoundaryConditions(nbforce.usesPeriodicBoundaryConditions())
+
+    num_exceptions = nbforce.getNumExceptions()
+    for idx in range(num_exceptions):
+        p1, p2, combinedCharge, combinedSigma, combinedEpsilon = nbforce.getExceptionParameters(idx)
+        # TODO: Consider the rest2 strategy for 1-4 interactions in the future.
+        if combinedCharge != 0.0:
+            coulomb_14_force.addBond(p1, p2, [combinedCharge])
+        if combinedEpsilon != 0.0:
+            lj_14_force.addBond(p1, p2, [combinedSigma, combinedEpsilon])
+        # The perturb_nonbonded_force will not handle 1-4 interactions, so we set the parameters to make the energy contribution zero.
+        # The actual 1-4 interactions will be handled by the coulomb_14_force and lj_14_force.
+        perturb_nonbonded_force.addException(p1, p2, 0, combinedSigma, 0)
+
+    return perturb_nonbonded_force, coulomb_14_force, lj_14_force
+
+
+###############################################
+# other forces -- RelocationMC water sampling #
+###############################################
+
+
+# A hydrogen atom is treated as any particle lighter than this mass (amu). This
+# matches bytemol's heavy-atom convention (atom.mass > 1.01 is heavy; see
+# bytemol.toolkit.system_builder.system_builder_tools.get_index_summary_file).
+_RELOCATIONMC_HEAVY_ATOM_MIN_MASS_AMU = 1.5
+
+
+def _get_relocationmc_ligand_heavy_atoms(osys: System, ligatoms: list[int]) -> list[int]:
+    """Return ligand heavy-atom indices (mass above the hydrogen threshold)."""
+    heavy = []
+    for idx in ligatoms:
+        mass = osys.getParticleMass(idx).value_in_unit(unit.amu)
+        if mass > _RELOCATIONMC_HEAVY_ATOM_MIN_MASS_AMU:
+            heavy.append(idx)
+    if not heavy:
+        # Fall back to all ligand atoms if no heavy atom was identified so the
+        # sphere centre is never empty.
+        logger.warning("RelocationMC: no heavy ligand atom found; using all ligand atoms for centre.")
+        heavy = list(ligatoms)
+    return heavy
+
+
+def _compute_relocationmc_sphere_radius(pos_nm, box_lengths_nm, ligand_heavy_atoms,
+                                        scale: float, offset_nm: float) -> float:
+    """Derive the inner sphere radius from ligand heavy-atom pairwise distances.
+
+    Radius = scale * max_pairwise_distance(minimum-image) + offset_nm.
+
+    PBC / conformation semantics:
+      * Positions are taken from the *initial* coordinate file used to build the
+        System (``gk.filename.crd``; for sysB this is the energy-minimized
+        ``sysB_em.pdb``), i.e. the same frame that seeds every replica. The
+        sphere is therefore a fixed geometric descriptor of the (relaxed) bound
+        pose and does not change during the simulation.
+      * Pairwise distances use the **minimum-image convention** on the
+        orthorhombic periodic box, so the result is independent of where the
+        ligand sits in the box and of any periodic wrapping of coordinates.
+      * ``scale=0.5`` converts the maximum heavy-atom separation (a "diameter"
+        of the ligand) into a radius, and ``offset_nm`` adds a solvent shell.
+    """
+    if len(ligand_heavy_atoms) < 2:
+        # Single (or empty) heavy atom: no pairwise extent; use the offset only.
+        return float(offset_nm)
+    max_dist = 0.0
+    coords = [pos_nm[i] for i in ligand_heavy_atoms]
+    for ia in range(len(coords)):
+        for ib in range(ia + 1, len(coords)):
+            d2 = 0.0
+            for axis in range(3):
+                delta = coords[ia][axis] - coords[ib][axis]
+                # minimum-image on the orthorhombic box
+                length = box_lengths_nm[axis]
+                if length > 0:
+                    delta -= round(delta / length) * length
+                d2 += delta * delta
+            if d2 > max_dist:
+                max_dist = d2
+    max_pair = math.sqrt(max_dist)
+    radius = scale * max_pair + offset_nm
+    return float(radius)
+
+
+def _get_relocationmc_alchemical_water_atoms(nbforce, ligatoms: list[int], OHH_list: list) -> set[int]:
+    """Reproduce the PerturbNonbondedForce alchemical-water atom selection.
+
+    Mirrors ``_make_perturb_nonbonded_force``: when the ligand is charged, the
+    last ``get_num_alchemwat(|q_ligand|)`` water triples are alchemical. Their
+    atom indices are returned so they can be excluded from the labile set.
+
+    ``nbforce`` here is the PerturbNonbondedForce, whose Python wrapper returns
+    particle parameters as plain numbers in (e, nm, kJ/mol).
+    """
+    def _charge_e(value):
+        return float(value.value_in_unit(unit.elementary_charge)) if hasattr(value, "value_in_unit") else float(value)
+
+    qeps = 1.e-6
+    lig_total_charge = 0.0
+    for idx in ligatoms:
+        # PerturbNonbondedForce.getParticleParameters returns
+        # (chargeA, sigmaA, epsilonA, chargeB, sigmaB, epsilonB, isDummy, isRest2).
+        chargeA, _, _, *_ = nbforce.getParticleParameters(idx)
+        lig_total_charge += _charge_e(chargeA)
+    alchem_atoms: set[int] = set()
+    if abs(lig_total_charge) <= qeps:
+        return alchem_atoms
+    alchem_q_needed = lig_total_charge * (-1.0)
+    nalchemwater = get_num_alchemwat(alchem_q_needed)
+    nwater = len(OHH_list)
+    if nalchemwater > nwater:
+        raise RuntimeError(f"RelocationMC: need at least {nalchemwater} water molecules; found {nwater}")
+    for iwat in OHH_list[-nalchemwater:]:
+        for atom in iwat:
+            alchem_atoms.add(int(atom))
+    logger.info(f"RelocationMC: charged ligand (q={lig_total_charge:.3f}e); "
+                f"{nalchemwater} alchemical waters ({len(alchem_atoms)} atoms) excluded from labile set")
+    return alchem_atoms
+
+
+def _add_relocation_mc_force(osys: System, gk: GlobalKeys) -> None:
+    """Add a RelocationMC force for water enhanced sampling (protein leg, sysB).
+
+    Registered labile molecules are all solvent water molecules. When the ligand
+    is charged, the alchemical charge-compensating waters are excluded from the
+    labile set (they are not bulk-like and their charge is perturbed). The inner
+    sphere is centred on the ligand heavy atoms with a radius derived from the
+    ligand heavy-atom extent plus an offset.
+    """
+    rmc = gk.relocation_mc
+    if not rmc.enable:
+        return
+
+    ligatoms = gk.ab.ligatoms
+    if ligatoms is None:
+        logger.info("RelocationMC: no ligand atoms found; force not added.")
+        return
+
+    OHH_list = gk.filename.getListOfOHH()
+    if not OHH_list:
+        logger.info("RelocationMC: no water molecules found (empty OHH list); force not added.")
+        return
+
+    try:
+        from RelocationMCPlugin import LabileMolSiteParameters
+        from RelocationMCPlugin import RelocationMC
+    except ImportError as exc:
+        raise ImportError(
+            "RelocationMC is enabled (relocation_mc.enable=True) but the RelocationMCPlugin "
+            "Python package could not be imported. Install the CUDA-enabled PerturbNonbondedPlugin "
+            "first, then install RelocationMCPlugin with its install.sh, and ensure "
+            "LD_LIBRARY_PATH/OPENMM_PLUGIN_DIR are set."
+        ) from exc
+
+    # The PerturbNonbondedForce is required by the RelocationMC CUDA kernels and
+    # must already be present in the System (it is added just before this call).
+    from PerturbNonbondedPlugin import PerturbNonbondedForce
+    perturb_force = None
+    for force in osys.getForces():
+        if PerturbNonbondedForce.isinstance(force):
+            perturb_force = PerturbNonbondedForce.cast(force)
+            break
+    if perturb_force is None:
+        raise RuntimeError("RelocationMC requires a PerturbNonbondedForce in the System, but none was found.")
+
+    natoms_per_water = len(OHH_list[0])
+    if not all(len(w) == natoms_per_water for w in OHH_list):
+        raise RuntimeError("RelocationMC requires every labile water to have the same number of sites")
+
+    # Exclude alchemical (charge-compensating) waters for a charged ligand.
+    excluded_atoms: set[int] = set()
+    if rmc.exclude_alchemical_water:
+        excluded_atoms = _get_relocationmc_alchemical_water_atoms(perturb_force, ligatoms, OHH_list)
+
+    labile_waters = [w for w in OHH_list if not any(int(a) in excluded_atoms for a in w)]
+    if not labile_waters:
+        raise RuntimeError("RelocationMC: no labile water molecules remain after exclusions.")
+
+    # Centre atoms = ligand heavy atoms.
+    ligand_heavy_atoms = _get_relocationmc_ligand_heavy_atoms(osys, ligatoms)
+
+    # Sphere radius from the initial minimized coordinates (minimum-image).
+    init_pos, init_box = get_initial_pos_pbc(gk)
+    pos_nm = init_pos.value_in_unit(unit.nanometer)
+    box_vecs = init_box.value_in_unit(unit.nanometer)
+    box_lengths = [box_vecs[0][0], box_vecs[1][1], box_vecs[2][2]]
+    if rmc.sphere_radius_nm is not None:
+        sphere_radius = float(rmc.sphere_radius_nm)
+        logger.info(f"RelocationMC: using explicit sphere radius {sphere_radius:.4f} nm")
+    else:
+        sphere_radius = _compute_relocationmc_sphere_radius(
+            pos_nm, box_lengths, ligand_heavy_atoms,
+            scale=rmc.sphere_radius_scale, offset_nm=rmc.sphere_radius_offset_nm)
+        logger.info(
+            f"RelocationMC: derived sphere radius {sphere_radius:.4f} nm from "
+            f"{len(ligand_heavy_atoms)} ligand heavy atoms "
+            f"(scale={rmc.sphere_radius_scale}, offset={rmc.sphere_radius_offset_nm} nm)")
+
+    temperature_K = rmc.temperature_K if rmc.temperature_K is not None else gk.integrator.targetT_K
+
+    relocation = RelocationMC(temperature_K, sphere_radius,
+                              int(rmc.exchange_frequency), int(rmc.num_candidate_sites))
+    relocation.setRandomSeed(int(rmc.random_seed))
+    relocation.setLigandAtoms([int(i) for i in ligand_heavy_atoms])
+
+    # FELIS uses the symmetric multiple-try Metropolis (MTM) protocol. Keep
+    # this order: the protocol setter validates the MTM prerequisites exposed
+    # by the plugin. num_candidate_sites is the proposal-pool size K and is
+    # passed directly to the constructor without the legacy 60x expansion.
+    relocation.setUseCavityBias(False)
+    relocation.setOrientationsEnabled(True)
+    relocation.setUseLegacyAsymmetricEnergies(False)
+    relocation.setProtocolVersion(RelocationMC.MTM)
+
+    # Homogeneous site parameters from the first labile water, read from the
+    # PerturbNonbondedForce (charge in e, sigma in nm, epsilon in kJ/mol). The
+    # Python wrapper returns plain numbers; coerce units defensively.
+    def _as_float(value, target_unit):
+        return float(value.value_in_unit(target_unit)) if hasattr(value, "value_in_unit") else float(value)
+
+    first_water = labile_waters[0]
+    ref_atom = int(first_water[0])
+    site_params = []
+    for atom in first_water:
+        charge, sigma, epsilon, *_ = perturb_force.getParticleParameters(int(atom))
+        site_params.append(LabileMolSiteParameters(
+            _as_float(charge, unit.elementary_charge),
+            _as_float(sigma, unit.nanometer),
+            _as_float(epsilon, unit.kilojoule_per_mole)))
+    relocation.setLabileMolSiteParameters(site_params)
+
+    # Rigid reference positions relative to the water oxygen (reference atom),
+    # minimum-image so the rigid template is whole regardless of wrapping.
+    ref_pos = pos_nm[ref_atom]
+    ref_positions = []
+    for atom in first_water:
+        offsets = []
+        for axis in range(3):
+            delta = pos_nm[int(atom)][axis] - ref_pos[axis]
+            length = box_lengths[axis]
+            if length > 0:
+                delta -= round(delta / length) * length
+            offsets.append(delta)
+        ref_positions.append(Vec3(offsets[0], offsets[1], offsets[2]))
+    relocation.setLabileMolReferencePositions(ref_positions)
+
+    for water in labile_waters:
+        atom_indices = [int(a) for a in water]
+        relocation.addLabileMol(atom_indices, atom_indices[0])
+
+    if rmc.verbose_log:
+        # HREMD launches one process per rank; make the log filename unique so
+        # ranks do not contend for the same file. NOTE: in hremd the system is
+        # built in the main process and forked to workers, so a main-pid suffix
+        # is NOT unique across ranks — pass a per-rank path via rmc.verbose_log.
+        log_path = str(rmc.verbose_log)
+        stem, suffix = os.path.splitext(log_path)
+        rank_log = f"{stem}.pid{os.getpid()}{suffix or '.log'}"
+        relocation.setVerbose(True)
+        relocation.setLogFileName(rank_log)
+        logger.info(f"RelocationMC: verbose relocation log per-rank: {rank_log}")
+
+    osys.addForce(relocation)
+    logger.info(
+        f"RelocationMC: added MTM force with {len(labile_waters)} labile waters "
+        f"(freq={rmc.exchange_frequency}, K={rmc.num_candidate_sites}, "
+        f"radius={sphere_radius:.4f} nm, T={temperature_K} K)")
+
 
 ########################################
 # other forces -- Monte Carlo Barostat #
@@ -424,6 +996,10 @@ def _get_system_topology(gk: GlobalKeys) -> tuple[System, Topology]:
         else:
             assert False
         assert gk.filename.sys.endswith(".top") and Path(gk.filename.sys).exists()
+        hmr_mass = None
+        if gk.integrator.hmr is not None:
+            _patch_openmm_gromacstopfile_hmr_water_resnames()
+            hmr_mass = gk.integrator.hmr * unit.amu
         topfile = GromacsTopFile(gk.filename.sys, periodicBoxVectors=pbcvecs)
         osys: System = topfile.createSystem(nonbondedMethod=ff.PME,
                                             nonbondedCutoff=1.0 * unit.nanometer,
@@ -431,7 +1007,7 @@ def _get_system_topology(gk: GlobalKeys) -> tuple[System, Topology]:
                                             rigidWater=True,
                                             ewaldErrorTolerance=0.0005,
                                             removeCMMotion=False,
-                                            hydrogenMass=None,
+                                            hydrogenMass=hmr_mass,
                                             switchDistance=None)
         nbforce: NonbondedForce = get_force_from_system_by_name(osys, "NonbondedForce")
         if nbforce:
@@ -441,12 +1017,18 @@ def _get_system_topology(gk: GlobalKeys) -> tuple[System, Topology]:
         raise NotImplementedError(f"unknown params_ecosystem {gk.openmm.params_ecosystem}")
 
 
-def get_system_topology(gk: GlobalKeys) -> tuple[System, Topology]:
+def get_system_topology(gk: GlobalKeys, enable_perturb_nonbonded: bool = False, customLambdaSchedules: dict = None) -> tuple[System, Topology]:
     osys, otop = _get_system_topology(gk)
     _add_position_restraints(osys, gk)
     _add_boresch_restraints(osys, gk)
 
-    _add_alchemical_nonbonded_force(osys, gk)
+    if enable_perturb_nonbonded:
+        _add_perturb_nonbonded_force(osys, gk, customLambdaSchedules)
+        # RelocationMC (water enhanced sampling) requires the PerturbNonbondedForce
+        # and is only supported on the perturb-nonbonded (sysB / v2) path.
+        _add_relocation_mc_force(osys, gk)
+    else:
+        _add_alchemical_nonbonded_force(osys, gk)
 
     _set_unique_forcegroup(osys)
     _add_monte_carlo_barostat(osys, gk)

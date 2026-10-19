@@ -1,0 +1,92 @@
+# Adapted from the OpenMM example plugin
+# (https://github.com/openmm/openmmexampleplugin), MIT License.
+# Portions copyright (c) 2014-2021 Stanford University and the Authors.
+# See THIRD_PARTY_NOTICES for the full MIT notice.
+# Modifications copyright (c) 2026 Bytedance Ltd. and/or its affiliates
+# SPDX-License-Identifier: LGPL-3.0-or-later AND MIT
+
+#---------------------------------------------------
+# OpenMM PerturbNonbonded Plugin CUDA Platform
+#----------------------------------------------------
+
+# Collect up information about the version of the OpenMM library we're building
+# and make it available to the code so it can be built into the binaries.
+
+SET(PERTURB_CUDA_LIBRARY_NAME PerturbNonbondedForceCUDA)
+
+SET(SHARED_CUDA_TARGET ${PERTURB_CUDA_LIBRARY_NAME})
+
+# These are all the places to search for header files which are
+# to be part of the API.
+SET(API_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/include/internal")
+
+# Locate header files.
+SET(API_INCLUDE_FILES)
+FOREACH(dir ${API_INCLUDE_DIRS})
+    FILE(GLOB fullpaths ${dir}/*.h)
+    SET(API_INCLUDE_FILES ${API_INCLUDE_FILES} ${fullpaths})
+ENDFOREACH(dir)
+
+# collect up source files
+SET(SOURCE_FILES) # empty
+SET(SOURCE_INCLUDE_FILES)
+
+SET(OPENMM_SOURCE_SUBDIRS .)
+FOREACH(subdir ${OPENMM_SOURCE_SUBDIRS})
+    FILE(GLOB_RECURSE src_files  ${CMAKE_CURRENT_SOURCE_DIR}/${subdir}/src/*.cpp ${CMAKE_CURRENT_SOURCE_DIR}/${subdir}/${subdir}/src/*.c)
+    FILE(GLOB incl_files ${CMAKE_CURRENT_SOURCE_DIR}/${subdir}/src/*.h)
+    SET(SOURCE_FILES         ${SOURCE_FILES}         ${src_files})   #append
+    SET(SOURCE_INCLUDE_FILES ${SOURCE_INCLUDE_FILES} ${incl_files})
+ENDFOREACH(subdir)
+
+
+INCLUDE_DIRECTORIES(BEFORE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+INCLUDE_DIRECTORIES(BEFORE ${CMAKE_SOURCE_DIR}/platforms/cuda/include)
+INCLUDE_DIRECTORIES(BEFORE ${CMAKE_SOURCE_DIR}/platforms/cuda/src)
+INCLUDE_DIRECTORIES(BEFORE ${CMAKE_BINARY_DIR}/platforms/cuda/src)
+
+SET(CUDA_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
+SET(CUDA_SOURCE_CLASS CudaPerturbNonbondedKernelSources)
+SET(CUDA_KERNELS_CPP ${CMAKE_CURRENT_BINARY_DIR}/src/${CUDA_SOURCE_CLASS}.cpp)
+SET(CUDA_KERNELS_H ${CMAKE_CURRENT_BINARY_DIR}/src/${CUDA_SOURCE_CLASS}.h)
+SET(SOURCE_FILES ${SOURCE_FILES} ${CUDA_KERNELS_CPP} ${CUDA_KERNELS_H})
+INCLUDE_DIRECTORIES(BEFORE ${CMAKE_CURRENT_BINARY_DIR}/src)
+
+# Create the library
+
+INCLUDE_DIRECTORIES(${CUDA_TOOLKIT_INCLUDE})
+
+FILE(GLOB CUDA_KERNELS ${CUDA_SOURCE_DIR}/kernels/*.cu)
+ADD_CUSTOM_COMMAND(OUTPUT ${CUDA_KERNELS_CPP} ${CUDA_KERNELS_H}
+    COMMAND ${CMAKE_COMMAND}
+    ARGS -D CUDA_SOURCE_DIR=${CUDA_SOURCE_DIR} -D CUDA_KERNELS_CPP=${CUDA_KERNELS_CPP} -D CUDA_KERNELS_H=${CUDA_KERNELS_H} -D CUDA_SOURCE_CLASS=${CUDA_SOURCE_CLASS} -P ${CMAKE_SOURCE_DIR}/platforms/cuda/EncodeCUDAFiles.cmake
+    DEPENDS ${CUDA_KERNELS}
+)
+SET_SOURCE_FILES_PROPERTIES(${CUDA_KERNELS_CPP} ${CUDA_KERNELS_H} PROPERTIES GENERATED TRUE)
+
+ADD_LIBRARY(${SHARED_CUDA_TARGET} SHARED ${SOURCE_FILES} ${SOURCE_INCLUDE_FILES} ${API_INCLUDE_FILES})
+
+TARGET_LINK_LIBRARIES(${SHARED_CUDA_TARGET} ${CUDA_LIBRARIES})
+TARGET_LINK_LIBRARIES(${SHARED_CUDA_TARGET} OpenMM)
+TARGET_LINK_LIBRARIES(${SHARED_CUDA_TARGET} OpenMMCUDA)
+TARGET_LINK_LIBRARIES(${SHARED_CUDA_TARGET} ${PERTURB_LIBRARY_NAME})
+SET_TARGET_PROPERTIES(${SHARED_CUDA_TARGET} PROPERTIES
+    COMPILE_FLAGS "-DOPENMM_BUILDING_SHARED_LIBRARY ${EXTRA_COMPILE_FLAGS}"
+    LINK_FLAGS "${EXTRA_COMPILE_FLAGS}"
+    VERSION ${PROJECT_VERSION}
+    SOVERSION ${PROJECT_VERSION_MAJOR}
+    INSTALL_RPATH "$ORIGIN;$ORIGIN/..;${OPENMM_DIR}/${CMAKE_INSTALL_LIBDIR}/plugins")
+IF (APPLE)
+    SET_TARGET_PROPERTIES(${SHARED_CUDA_TARGET} PROPERTIES LINK_FLAGS "-F/Library/Frameworks -framework CUDA ${EXTRA_COMPILE_FLAGS}")
+ENDIF (APPLE)
+
+INSTALL(TARGETS ${SHARED_CUDA_TARGET} DESTINATION ${CMAKE_INSTALL_LIBDIR}/plugins)
+# Ensure that links to the main CUDA library will be resolved.
+IF (APPLE)
+    SET(CUDA_LIBRARY libOpenMMCUDA.dylib)
+    INSTALL(CODE "EXECUTE_PROCESS(COMMAND install_name_tool -change ${CUDA_LIBRARY} @loader_path/${CUDA_LIBRARY} ${CMAKE_INSTALL_PREFIX}/lib/plugins/lib${SHARED_CUDA_TARGET}.dylib)")
+ENDIF (APPLE)
+
+IF(BUILD_TESTING)
+    ADD_SUBDIRECTORY(tests)
+ENDIF()
